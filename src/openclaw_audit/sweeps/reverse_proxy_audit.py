@@ -13,7 +13,7 @@ from .base import BaseSweep
 logger = logging.getLogger(__name__)
 
 # Loopback addresses that are safe for binding
-_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+_LOOPBACK = {"127.0.0.1", "localhost", "::1", "loopback"}
 
 
 class ReverseProxyAuditSweep(BaseSweep):

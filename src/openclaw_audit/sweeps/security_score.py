@@ -83,7 +83,7 @@ class SecurityScoreSweep(BaseSweep):
 
         # 3. Gateway bound to loopback (15)
         bind = _get_nested(config, "gateway.bind")
-        bound_loopback = bind in (None, "127.0.0.1", "localhost", "::1")
+        bound_loopback = bind in (None, "127.0.0.1", "localhost", "::1", "loopback")
         checks.append(("Gateway bound to loopback", 15, bound_loopback))
 
         # 4. Sandbox enabled (10)

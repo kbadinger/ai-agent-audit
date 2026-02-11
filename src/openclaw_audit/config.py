@@ -62,7 +62,7 @@ SENSITIVE_FILE_PATTERNS: list[str] = [
 INSECURE_CONFIG_RULES: list[dict] = [
     {
         "key": "gateway.bind",
-        "check": lambda v: v not in (None, "127.0.0.1", "localhost", "::1"),
+        "check": lambda v: v not in (None, "127.0.0.1", "localhost", "::1", "loopback"),
         "severity": "CRITICAL",
         "title": "Gateway bound to non-loopback address",
         "detail": "Gateway is accessible from the network. Bind to 127.0.0.1.",

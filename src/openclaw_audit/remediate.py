@@ -141,7 +141,7 @@ class RemediationEngine:
         # gateway.bind -> 127.0.0.1
         gw = config.get("gateway", {})
         bind_val = gw.get("bind")
-        if bind_val not in (None, "127.0.0.1", "localhost", "::1"):
+        if bind_val not in (None, "127.0.0.1", "localhost", "::1", "loopback"):
             gw["bind"] = "127.0.0.1"
             config["gateway"] = gw
             self._log_action("fix_config", f"gateway.bind: {bind_val!r} -> '127.0.0.1'", applied=not self.dry_run)

