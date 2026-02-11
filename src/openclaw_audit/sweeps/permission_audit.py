@@ -53,26 +53,11 @@ class PermissionAuditSweep(BaseSweep):
                     continue
 
                 mode = st.st_mode
+                is_sensitive = entry in sensitive_paths
+                entry_path = Path(entry)
+                is_expected = entry_path in EXPECTED_PERMISSIONS
 
-                # Check ownership
-                if st.st_uid != current_uid:
-                    findings.append(Finding(
-                        module=self.name,
-                        severity=Severity.WARNING,
-                        title="File not owned by current user",
-                        detail=f"Owned by UID {st.st_uid}, expected {current_uid}.",
-                        path=entry,
-                    ))
-
-                # Check world-readable
-                if mode & stat.S_IROTH:
-                    findings.append(Finding(
-                        module=self.name,
-                        severity=Severity.WARNING,
-                        title="World-readable file",
-                        detail=f"Mode {oct(stat.S_IMODE(mode))}; others can read this file.",
-                        path=entry,
-                    ))
+                # --- CRITICAL checks: always scan everything ---
 
                 # Check world-writable
                 if mode & stat.S_IWOTH:
@@ -94,9 +79,32 @@ class PermissionAuditSweep(BaseSweep):
                         path=entry,
                     ))
 
+                # --- WARNING checks: only on sensitive/expected paths ---
+                # Normal extension/node_modules files being 644 is expected.
+
+                if is_sensitive or is_expected:
+                    # Check ownership
+                    if st.st_uid != current_uid:
+                        findings.append(Finding(
+                            module=self.name,
+                            severity=Severity.WARNING,
+                            title="File not owned by current user",
+                            detail=f"Owned by UID {st.st_uid}, expected {current_uid}.",
+                            path=entry,
+                        ))
+
+                    # Check world-readable
+                    if mode & stat.S_IROTH:
+                        findings.append(Finding(
+                            module=self.name,
+                            severity=Severity.WARNING,
+                            title="World-readable file",
+                            detail=f"Mode {oct(stat.S_IMODE(mode))}; others can read this file.",
+                            path=entry,
+                        ))
+
                 # Check against EXPECTED_PERMISSIONS for known dirs/files
-                entry_path = Path(entry)
-                if entry_path in EXPECTED_PERMISSIONS:
+                if is_expected:
                     expected = EXPECTED_PERMISSIONS[entry_path]
                     actual = stat.S_IMODE(mode)
                     if actual & ~expected:
@@ -111,7 +119,7 @@ class PermissionAuditSweep(BaseSweep):
                         ))
 
                 # Check sensitive files against 0o600
-                if entry in sensitive_paths and stat.S_ISREG(mode):
+                if is_sensitive and stat.S_ISREG(mode):
                     actual = stat.S_IMODE(mode)
                     if actual & ~0o600:
                         findings.append(Finding(
