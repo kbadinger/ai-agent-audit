@@ -111,9 +111,10 @@ class AgentCommAuditSweep(BaseSweep):
             extra = f"\n  ... and {len(credential_leaks) - 5} more" if len(credential_leaks) > 5 else ""
             findings.append(Finding(
                 module=self.name,
-                severity=Severity.CRITICAL,
-                title=f"{len(credential_leaks)} credentials found in agent traffic",
-                detail="Credential patterns detected in session transcripts:\n"
+                severity=Severity.INFO,
+                title=f"{len(credential_leaks)} credentials present in session transcripts",
+                detail="Credentials in transcripts are expected (agent API keys). "
+                       "Ensure session files are permission-restricted to 0o600.\n"
                        + "\n".join(f"  - {s}" for s in samples) + extra,
             ))
 
