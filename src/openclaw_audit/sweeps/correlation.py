@@ -139,10 +139,12 @@ class CorrelationSweep(BaseSweep):
         plugin_findings = [
             f for f in by_module.get("plugin_integrity", [])
             if f["last_seen"] >= now - _24_HOURS
+            and f["severity"] >= int(Severity.WARNING)
         ]
         skill_findings = [
             f for f in by_module.get("skill_scanner", [])
             if f["last_seen"] >= now - _24_HOURS
+            and f["severity"] >= int(Severity.WARNING)
         ]
 
         if plugin_findings and skill_findings:

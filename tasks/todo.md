@@ -380,6 +380,9 @@ All source files are clean of TODO/FIXME/HACK comments.
 - [x] `openclaw-audit report` generates HTML report
 - [x] `pytest tests/` - 43 tests pass
 
+### False Positive Fixes
+- [x] Fix "Supply chain compromise pattern" false positive in correlation.py - filter to WARNING+ severity only
+
 ## Sprint 5 Review
 
 ### Changes Made
@@ -387,3 +390,4 @@ All source files are clean of TODO/FIXME/HACK comments.
 2. **engine.py**: Replaced monkey-patching of `_on_finding` with a proper `on_finding_callback` constructor parameter. Passed the shared `engine.db` instance to `CorrelationSweep`.
 3. **alerting.py**: Added `platform.system()` check in `_send_macos_notification()` to skip cleanly on non-macOS platforms instead of silently failing.
 4. **tests/**: Added 43 tests across 4 test files covering db operations, config detection rules, session analyzer patterns, and security score grading.
+5. **correlation.py**: Fixed supply chain correlation false positive - now only correlates WARNING+ severity findings from plugin_integrity and skill_scanner, ignoring INFO-level "directory not found" findings.
