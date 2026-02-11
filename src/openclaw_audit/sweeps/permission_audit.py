@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import stat
+from collections import defaultdict
 from pathlib import Path
 
 from ..config import (
@@ -40,6 +41,10 @@ class PermissionAuditSweep(BaseSweep):
         for pattern in SENSITIVE_FILE_PATTERNS:
             for match in OPENCLAW_HOME.glob(pattern):
                 sensitive_paths.add(str(match))
+
+        # Aggregate counters for sensitive file issues (avoid 1 finding per file)
+        sensitive_world_readable: list[str] = []
+        sensitive_too_permissive: list[str] = []
 
         for dirpath, dirnames, filenames in os.walk(OPENCLAW_HOME):
             entries = [os.path.join(dirpath, d) for d in dirnames]
@@ -79,11 +84,8 @@ class PermissionAuditSweep(BaseSweep):
                         path=entry,
                     ))
 
-                # --- WARNING checks: only on sensitive/expected paths ---
-                # Normal extension/node_modules files being 644 is expected.
-
-                if is_sensitive or is_expected:
-                    # Check ownership
+                # --- WARNING checks: only on expected permission paths ---
+                if is_expected:
                     if st.st_uid != current_uid:
                         findings.append(Finding(
                             module=self.name,
@@ -93,18 +95,6 @@ class PermissionAuditSweep(BaseSweep):
                             path=entry,
                         ))
 
-                    # Check world-readable
-                    if mode & stat.S_IROTH:
-                        findings.append(Finding(
-                            module=self.name,
-                            severity=Severity.WARNING,
-                            title="World-readable file",
-                            detail=f"Mode {oct(stat.S_IMODE(mode))}; others can read this file.",
-                            path=entry,
-                        ))
-
-                # Check against EXPECTED_PERMISSIONS for known dirs/files
-                if is_expected:
                     expected = EXPECTED_PERMISSIONS[entry_path]
                     actual = stat.S_IMODE(mode)
                     if actual & ~expected:
@@ -112,24 +102,39 @@ class PermissionAuditSweep(BaseSweep):
                             module=self.name,
                             severity=Severity.WARNING,
                             title="Permissions exceed expected",
-                            detail=(
-                                f"Has {oct(actual)}, expected at most {oct(expected)}."
-                            ),
+                            detail=f"Has {oct(actual)}, expected at most {oct(expected)}.",
                             path=entry,
                         ))
 
-                # Check sensitive files against 0o600
+                # --- Sensitive file checks: aggregate into summaries ---
                 if is_sensitive and stat.S_ISREG(mode):
+                    if mode & stat.S_IROTH:
+                        sensitive_world_readable.append(entry)
                     actual = stat.S_IMODE(mode)
                     if actual & ~0o600:
-                        findings.append(Finding(
-                            module=self.name,
-                            severity=Severity.WARNING,
-                            title="Sensitive file too permissive",
-                            detail=(
-                                f"Has {oct(actual)}, expected at most 0o600."
-                            ),
-                            path=entry,
-                        ))
+                        sensitive_too_permissive.append(entry)
+
+        # Emit aggregated findings for sensitive files
+        if sensitive_too_permissive:
+            samples = sensitive_too_permissive[:5]
+            sample_text = "\n".join(f"  - {p}" for p in samples)
+            extra = f"\n  ... and {len(sensitive_too_permissive) - 5} more" if len(sensitive_too_permissive) > 5 else ""
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.WARNING,
+                title=f"{len(sensitive_too_permissive)} sensitive files too permissive",
+                detail=f"Expected mode 0o600 or stricter:\n{sample_text}{extra}",
+            ))
+
+        if sensitive_world_readable:
+            samples = sensitive_world_readable[:5]
+            sample_text = "\n".join(f"  - {p}" for p in samples)
+            extra = f"\n  ... and {len(sensitive_world_readable) - 5} more" if len(sensitive_world_readable) > 5 else ""
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.WARNING,
+                title=f"{len(sensitive_world_readable)} sensitive files world-readable",
+                detail=f"Others can read these files:\n{sample_text}{extra}",
+            ))
 
         return ModuleResult(module_name=self.name, findings=findings)
