@@ -1,0 +1,256 @@
+"""Auto-remediation engine for common security findings."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import shutil
+import stat
+from pathlib import Path
+
+from . import ioc
+from .config import (
+    AUDIT_DIR,
+    OPENCLAW_CONFIG,
+    OPENCLAW_CREDENTIALS,
+    OPENCLAW_ENV,
+    OPENCLAW_EXEC_APPROVALS,
+    OPENCLAW_EXTENSIONS,
+    OPENCLAW_HOME,
+    OPENCLAW_SKILLS,
+)
+
+logger = logging.getLogger(__name__)
+
+_REMEDIATION_LOG = AUDIT_DIR / "remediation.log"
+_QUARANTINE_DIR = AUDIT_DIR / "quarantine"
+
+# Paths that should be mode 700 (directories)
+_DIR_700: list[Path] = [OPENCLAW_HOME, OPENCLAW_CREDENTIALS, OPENCLAW_EXTENSIONS]
+
+# Paths that should be mode 600 (files)
+_FILE_600: list[Path] = [OPENCLAW_CONFIG, OPENCLAW_ENV]
+
+# Additional files checked if they exist
+_OPTIONAL_FILE_600: list[Path] = [
+    OPENCLAW_EXEC_APPROVALS,
+]
+
+# Agent auth-profiles files (glob pattern relative to OPENCLAW_HOME)
+_AUTH_PROFILE_GLOB = "agents/*/agent/auth-profiles.json"
+
+
+def _read_skill_metadata(skill_dir: Path) -> dict:
+    """Read skill metadata from skill.json or package.json."""
+    for name in ("skill.json", "package.json"):
+        meta_path = skill_dir / name
+        if meta_path.exists():
+            try:
+                return json.loads(meta_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+    return {}
+
+
+class RemediationEngine:
+    """Auto-fix common security findings."""
+
+    def __init__(self, dry_run: bool = False):
+        self.dry_run = dry_run
+        self.actions: list[dict] = []
+
+    def run_all(self) -> list[dict]:
+        """Run all remediation checks and return actions taken."""
+        self._fix_permissions()
+        self._fix_config()
+        self._remove_malicious_skills()
+        self._write_log()
+        return self.actions
+
+    # --- Permission fixes ---
+
+    def _fix_permissions(self) -> None:
+        """Fix file/directory permissions -- only tighten, never loosen."""
+        for dirpath in _DIR_700:
+            self._tighten(dirpath, 0o700)
+
+        for filepath in _FILE_600:
+            self._tighten(filepath, 0o600)
+
+        for filepath in _OPTIONAL_FILE_600:
+            if filepath.exists():
+                self._tighten(filepath, 0o600)
+
+        # Auth profile files
+        for auth_file in OPENCLAW_HOME.glob(_AUTH_PROFILE_GLOB):
+            self._tighten(auth_file, 0o600)
+
+        # All files inside credentials/
+        if OPENCLAW_CREDENTIALS.is_dir():
+            for child in OPENCLAW_CREDENTIALS.iterdir():
+                if child.is_file():
+                    self._tighten(child, 0o600)
+
+    def _tighten(self, path: Path, target: int) -> None:
+        """Set permissions on *path* to *target* if currently looser."""
+        if not path.exists():
+            return
+        try:
+            current = stat.S_IMODE(path.stat().st_mode)
+        except OSError:
+            return
+
+        # "looser" means the file grants bits that the target does not
+        extra_bits = current & ~target
+        if not extra_bits:
+            return  # already tight enough
+
+        detail = f"{path}: {oct(current)} -> {oct(target)}"
+        if self.dry_run:
+            self._log_action("fix_permission", detail, applied=False)
+        else:
+            try:
+                os.chmod(path, target)
+                self._log_action("fix_permission", detail, applied=True)
+            except OSError as exc:
+                self._log_action("fix_permission", f"{detail} FAILED: {exc}", applied=False)
+
+    # --- Config hardening ---
+
+    def _fix_config(self) -> None:
+        """Harden openclaw.json settings."""
+        if not OPENCLAW_CONFIG.exists():
+            return
+
+        try:
+            config = json.loads(OPENCLAW_CONFIG.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            self._log_action("fix_config", f"Cannot read config: {exc}", applied=False)
+            return
+
+        changed = False
+
+        # gateway.bind -> 127.0.0.1
+        gw = config.get("gateway", {})
+        bind_val = gw.get("bind")
+        if bind_val not in (None, "127.0.0.1", "localhost", "::1"):
+            gw["bind"] = "127.0.0.1"
+            config["gateway"] = gw
+            self._log_action("fix_config", f"gateway.bind: {bind_val!r} -> '127.0.0.1'", applied=not self.dry_run)
+            changed = True
+
+        # gateway.auth.enabled -> true
+        auth = gw.get("auth", {})
+        if auth.get("enabled") is False:
+            auth["enabled"] = True
+            gw["auth"] = auth
+            config["gateway"] = gw
+            self._log_action("fix_config", "gateway.auth.enabled: false -> true", applied=not self.dry_run)
+            changed = True
+
+        # gateway.auth.allowOpenDM -> false
+        if auth.get("allowOpenDM") is True:
+            auth["allowOpenDM"] = False
+            gw["auth"] = auth
+            config["gateway"] = gw
+            self._log_action("fix_config", "gateway.auth.allowOpenDM: true -> false", applied=not self.dry_run)
+            changed = True
+
+        # sandbox.enabled -> true
+        sandbox = config.get("sandbox", {})
+        if sandbox.get("enabled") is False:
+            sandbox["enabled"] = True
+            config["sandbox"] = sandbox
+            self._log_action("fix_config", "sandbox.enabled: false -> true", applied=not self.dry_run)
+            changed = True
+
+        # logging.redactSecrets -> true
+        log_cfg = config.get("logging", {})
+        if log_cfg.get("redactSecrets") is False:
+            log_cfg["redactSecrets"] = True
+            config["logging"] = log_cfg
+            self._log_action("fix_config", "logging.redactSecrets: false -> true", applied=not self.dry_run)
+            changed = True
+
+        if changed and not self.dry_run:
+            try:
+                OPENCLAW_CONFIG.write_text(json.dumps(config, indent=2) + "\n")
+            except OSError as exc:
+                self._log_action("fix_config", f"Failed to write config: {exc}", applied=False)
+
+    # --- Malicious skill removal ---
+
+    def _remove_malicious_skills(self) -> None:
+        """Remove skills matching known malicious patterns (quarantine, not delete)."""
+        if not OPENCLAW_SKILLS.is_dir():
+            return
+
+        try:
+            skill_dirs = [d for d in OPENCLAW_SKILLS.iterdir() if d.is_dir()]
+        except OSError:
+            return
+
+        for skill_dir in skill_dirs:
+            reason = self._skill_is_malicious(skill_dir)
+            if reason is None:
+                continue
+
+            detail = f"{skill_dir.name}: {reason}"
+            if self.dry_run:
+                self._log_action("remove_skill", detail, applied=False)
+            else:
+                self._quarantine_skill(skill_dir, detail)
+
+    def _skill_is_malicious(self, skill_dir: Path) -> str | None:
+        """Return a reason string if the skill matches malicious indicators, else None."""
+        name = skill_dir.name
+
+        # Check name patterns
+        for pattern in ioc.MALICIOUS_SKILL_PATTERNS:
+            if re.search(pattern, name, re.IGNORECASE):
+                return f"name matches pattern {pattern}"
+
+        # Check publisher
+        meta = _read_skill_metadata(skill_dir)
+        publisher = meta.get("publisher") or meta.get("author", "")
+        if isinstance(publisher, dict):
+            publisher = publisher.get("name", "")
+        publisher = str(publisher).strip()
+
+        for pub, campaign in ioc.MALICIOUS_PUBLISHERS.items():
+            if pub.lower() in publisher.lower():
+                return f"publisher '{publisher}' matches known malicious ({campaign})"
+
+        return None
+
+    def _quarantine_skill(self, skill_dir: Path, detail: str) -> None:
+        """Move a skill directory to quarantine."""
+        _QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
+        dest = _QUARANTINE_DIR / skill_dir.name
+        try:
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(skill_dir), str(dest))
+            self._log_action("remove_skill", detail, applied=True)
+        except OSError as exc:
+            self._log_action("remove_skill", f"{detail} FAILED: {exc}", applied=False)
+
+    # --- Logging ---
+
+    def _log_action(self, action: str, detail: str, applied: bool) -> None:
+        """Record an action taken or proposed."""
+        self.actions.append({"action": action, "detail": detail, "applied": applied})
+        prefix = "APPLIED" if applied else "DRY-RUN" if self.dry_run else "FAILED"
+        logger.info("[%s] %s: %s", prefix, action, detail)
+
+    def _write_log(self) -> None:
+        """Append actions to the remediation log file."""
+        if not self.actions:
+            return
+        _REMEDIATION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(_REMEDIATION_LOG, "a") as f:
+            for entry in self.actions:
+                prefix = "APPLIED" if entry["applied"] else "DRY-RUN" if self.dry_run else "FAILED"
+                f.write(f"[{prefix}] {entry['action']}: {entry['detail']}\n")

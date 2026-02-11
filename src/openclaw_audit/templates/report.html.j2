@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenClaw Security Audit Report</title>
+<style>
+  :root {
+    --bg: #1a1b2e;
+    --surface: #252640;
+    --surface2: #2d2e4a;
+    --text: #e0e0f0;
+    --text-muted: #8888aa;
+    --border: #3a3b5a;
+    --critical: #ff4d6a;
+    --warning: #ffaa33;
+    --info: #44aaff;
+    --good: #44dd88;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1, h2, h3 { font-weight: 600; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h2 { font-size: 1.3rem; margin-bottom: 1rem; color: var(--text-muted); }
+  h3 { font-size: 1.1rem; margin-bottom: 0.75rem; }
+
+  .header { text-align: center; padding: 2rem 0; }
+  .header p { color: var(--text-muted); }
+
+  /* Score */
+  .score-section { text-align: center; margin: 2rem 0; }
+  .score-circle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 120px; height: 120px; border-radius: 50%;
+    font-size: 2.5rem; font-weight: 700;
+    border: 4px solid;
+  }
+  .grade-A { border-color: var(--good); color: var(--good); }
+  .grade-B { border-color: #88cc44; color: #88cc44; }
+  .grade-C { border-color: var(--warning); color: var(--warning); }
+  .grade-D { border-color: #ff7744; color: #ff7744; }
+  .grade-F { border-color: var(--critical); color: var(--critical); }
+  .grade-unknown { border-color: var(--text-muted); color: var(--text-muted); }
+  .score-label { display: block; margin-top: 0.5rem; color: var(--text-muted); font-size: 0.9rem; }
+
+  /* Summary cards */
+  .summary-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
+    margin: 2rem 0;
+  }
+  .card {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    border-left: 4px solid;
+  }
+  .card-critical { border-color: var(--critical); }
+  .card-warning { border-color: var(--warning); }
+  .card-info { border-color: var(--info); }
+  .card .count { font-size: 2rem; font-weight: 700; }
+  .card-critical .count { color: var(--critical); }
+  .card-warning .count { color: var(--warning); }
+  .card-info .count { color: var(--info); }
+  .card .label { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  /* Module sections */
+  .module-section {
+    background: var(--surface);
+    border-radius: 8px;
+    margin: 1.5rem 0;
+    overflow: hidden;
+  }
+  .module-header {
+    padding: 1rem 1.5rem;
+    background: var(--surface2);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .module-header:hover { background: var(--border); }
+  .module-header .arrow { transition: transform 0.2s; }
+  .module-body { padding: 0 1.5rem; }
+  .module-body.collapsed { display: none; }
+
+  /* Finding cards */
+  .finding {
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .finding:last-child { border-bottom: none; }
+  .finding-title { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .badge {
+    display: inline-block; padding: 0.15rem 0.5rem;
+    border-radius: 4px; font-size: 0.75rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .badge-critical { background: var(--critical); color: #fff; }
+  .badge-warning { background: var(--warning); color: #1a1a1a; }
+  .badge-info { background: var(--info); color: #fff; }
+  .finding-detail { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.4rem; }
+  .finding-meta { font-size: 0.8rem; color: var(--text-muted); }
+  .finding-meta span { margin-right: 1rem; }
+  .finding-path { font-family: monospace; font-size: 0.85rem; color: var(--warning); }
+
+  /* Trend chart */
+  .trend-section { margin: 2rem 0; }
+  .trend-chart {
+    display: flex; align-items: flex-end; gap: 2px;
+    height: 120px; padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .trend-bar-group {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    height: 100%; justify-content: flex-end;
+  }
+  .trend-bar {
+    width: 100%; min-width: 4px; border-radius: 2px 2px 0 0;
+  }
+  .trend-bar.critical { background: var(--critical); }
+  .trend-bar.warning { background: var(--warning); }
+  .trend-bar.info { background: var(--info); }
+  .trend-labels {
+    display: flex; gap: 2px; margin-top: 0.25rem;
+  }
+  .trend-labels span {
+    flex: 1; text-align: center; font-size: 0.6rem; color: var(--text-muted);
+  }
+  .trend-legend {
+    display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.8rem;
+  }
+  .trend-legend span::before {
+    content: ""; display: inline-block; width: 10px; height: 10px;
+    border-radius: 2px; margin-right: 0.3rem; vertical-align: middle;
+  }
+  .legend-critical::before { background: var(--critical); }
+  .legend-warning::before { background: var(--warning); }
+  .legend-info::before { background: var(--info); }
+
+  /* No findings */
+  .no-findings {
+    text-align: center; padding: 3rem; color: var(--good);
+    font-size: 1.1rem;
+  }
+
+  /* Footer */
+  .footer {
+    text-align: center; padding: 2rem 0; margin-top: 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted); font-size: 0.8rem;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OpenClaw Security Audit Report</h1>
+  <p>Generated {{ generated_at }}</p>
+</div>
+
+<!-- Score -->
+<div class="score-section">
+  {% if grade %}
+  <div class="score-circle grade-{{ grade }}">{{ grade }}</div>
+  <span class="score-label">Security Score: {{ score }}/135</span>
+  {% else %}
+  <div class="score-circle grade-unknown">?</div>
+  <span class="score-label">No score available</span>
+  {% endif %}
+</div>
+
+<!-- Summary cards -->
+{% set critical_count = findings | selectattr('severity', 'equalto', 2) | list | length %}
+{% set warning_count = findings | selectattr('severity', 'equalto', 1) | list | length %}
+{% set info_count = findings | selectattr('severity', 'equalto', 0) | list | length %}
+
+<div class="summary-cards">
+  <div class="card card-critical">
+    <div class="count">{{ critical_count }}</div>
+    <div class="label">Critical</div>
+  </div>
+  <div class="card card-warning">
+    <div class="count">{{ warning_count }}</div>
+    <div class="label">Warning</div>
+  </div>
+  <div class="card card-info">
+    <div class="count">{{ info_count }}</div>
+    <div class="label">Info</div>
+  </div>
+</div>
+
+<!-- Findings by module -->
+{% if findings %}
+<h2>Findings by Module</h2>
+{% set modules = findings | map(attribute='module') | unique | list %}
+{% for mod in modules %}
+{% set mod_findings = findings | selectattr('module', 'equalto', mod) | list %}
+<div class="module-section">
+  <div class="module-header" onclick="this.nextElementSibling.classList.toggle('collapsed'); this.querySelector('.arrow').textContent = this.nextElementSibling.classList.contains('collapsed') ? '+' : '-'">
+    <h3>{{ mod }} ({{ mod_findings | length }})</h3>
+    <span class="arrow">-</span>
+  </div>
+  <div class="module-body">
+    {% for f in mod_findings %}
+    <div class="finding">
+      <div class="finding-title">
+        {% if f.severity == 2 %}
+        <span class="badge badge-critical">Critical</span>
+        {% elif f.severity == 1 %}
+        <span class="badge badge-warning">Warning</span>
+        {% else %}
+        <span class="badge badge-info">Info</span>
+        {% endif %}
+        <strong>{{ f.title }}</strong>
+      </div>
+      <div class="finding-detail">{{ f.detail }}</div>
+      {% if f.path %}
+      <div class="finding-path">{{ f.path }}</div>
+      {% endif %}
+      <div class="finding-meta">
+        <span>First seen: {{ f.first_seen | timestamp_fmt }}</span>
+        <span>Last seen: {{ f.last_seen | timestamp_fmt }}</span>
+        <span>Seen {{ f.times_seen }}x</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="no-findings">No active findings. Your OpenClaw installation looks secure.</div>
+{% endif %}
+
+<!-- Trend chart -->
+{% if trend_data %}
+<div class="trend-section">
+  <h2>30-Day Trend</h2>
+  {% set days_list = trend_data | map(attribute='day') | unique | sort | list %}
+  {% set max_count = trend_data | map(attribute='count') | max %}
+  <div class="trend-chart">
+    {% for day in days_list %}
+    {% set day_critical = trend_data | selectattr('day', 'equalto', day) | selectattr('severity', 'equalto', 2) | map(attribute='count') | first | default(0) %}
+    {% set day_warning = trend_data | selectattr('day', 'equalto', day) | selectattr('severity', 'equalto', 1) | map(attribute='count') | first | default(0) %}
+    {% set day_info = trend_data | selectattr('day', 'equalto', day) | selectattr('severity', 'equalto', 0) | map(attribute='count') | first | default(0) %}
+    {% set total = day_critical + day_warning + day_info %}
+    <div class="trend-bar-group">
+      {% if day_critical > 0 %}
+      <div class="trend-bar critical" style="height: {{ (day_critical / max_count * 100) | int }}%"></div>
+      {% endif %}
+      {% if day_warning > 0 %}
+      <div class="trend-bar warning" style="height: {{ (day_warning / max_count * 100) | int }}%"></div>
+      {% endif %}
+      {% if day_info > 0 %}
+      <div class="trend-bar info" style="height: {{ (day_info / max_count * 100) | int }}%"></div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="trend-labels">
+    {% for day in days_list %}
+    <span>{% if loop.index0 % 5 == 0 %}{{ day[-5:] }}{% endif %}</span>
+    {% endfor %}
+  </div>
+  <div class="trend-legend">
+    <span class="legend-critical">Critical</span>
+    <span class="legend-warning">Warning</span>
+    <span class="legend-info">Info</span>
+  </div>
+</div>
+{% endif %}
+
+<div class="footer">
+  OpenClaw Audit v0.1.0 &mdash; Report generated {{ generated_at }}
+</div>
+
+</body>
+</html>
