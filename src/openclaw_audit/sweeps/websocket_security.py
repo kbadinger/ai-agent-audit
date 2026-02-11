@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import socket
 
+from ..config import OPENCLAW_CONFIG
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
 
@@ -31,6 +33,9 @@ class WebSocketSecuritySweep(BaseSweep):
 
     def run(self) -> ModuleResult:
         findings: list[Finding] = []
+
+        # Check config for dangerous auth bypasses
+        self._check_config(findings)
 
         # First check if gateway is listening
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -73,8 +78,11 @@ class WebSocketSecuritySweep(BaseSweep):
                 title="CVE-2026-25253: WebSocket origin not validated",
                 detail=(
                     "Gateway accepted WebSocket upgrade from spoofed Origin "
-                    "'http://evil.attacker.com'. A malicious webpage can connect "
-                    "to the local gateway and control the agent."
+                    "'http://evil.attacker.com'. The HTTP upgrade does not check "
+                    "the Origin header. Origin validation only occurs later for "
+                    "Control UI / Webchat clients. A challenge-response (Ed25519) "
+                    "blocks unauthenticated commands, but this is a defense-in-depth "
+                    "failure — origin should be validated at the HTTP upgrade level."
                 ),
             ))
         else:
@@ -86,3 +94,44 @@ class WebSocketSecuritySweep(BaseSweep):
             ))
 
         return ModuleResult(module_name=self.name, findings=findings)
+
+    def _check_config(self, findings: list[Finding]) -> None:
+        """Check for config flags that weaken or disable the challenge-response."""
+        if not OPENCLAW_CONFIG.exists():
+            return
+        try:
+            data = json.loads(OPENCLAW_CONFIG.read_text())
+        except (json.JSONDecodeError, OSError):
+            return
+
+        control_ui = data.get("gateway", {}).get("controlUi", {})
+        if not isinstance(control_ui, dict):
+            return
+
+        if control_ui.get("allowInsecureAuth") is True:
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.CRITICAL,
+                title="Insecure auth allows WebSocket full compromise",
+                detail=(
+                    "gateway.controlUi.allowInsecureAuth is true. "
+                    "The Ed25519 device identity can be skipped. Combined with "
+                    "missing origin validation on HTTP upgrade, any webpage can "
+                    "authenticate with just a token/password and fully control the agent."
+                ),
+                path=str(OPENCLAW_CONFIG),
+            ))
+
+        if control_ui.get("dangerouslyDisableDeviceAuth") is True:
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.CRITICAL,
+                title="Device auth disabled — WebSocket fully exploitable",
+                detail=(
+                    "gateway.controlUi.dangerouslyDisableDeviceAuth is true. "
+                    "The Ed25519 challenge-response is bypassed entirely. "
+                    "Any webpage can connect and control the agent without "
+                    "any authentication."
+                ),
+                path=str(OPENCLAW_CONFIG),
+            ))

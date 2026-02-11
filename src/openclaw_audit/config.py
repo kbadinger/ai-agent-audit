@@ -89,6 +89,24 @@ INSECURE_CONFIG_RULES: list[dict] = [
         "detail": "Device-level authentication is disabled.",
     },
     {
+        "key": "gateway.controlUi.allowInsecureAuth",
+        "check": lambda v: v is True,
+        "severity": "CRITICAL",
+        "title": "Insecure Control UI auth enabled",
+        "detail": "gateway.controlUi.allowInsecureAuth is true. Device identity "
+                  "can be skipped; token/password auth alone is accepted. "
+                  "Combined with missing origin validation, any webpage could authenticate.",
+    },
+    {
+        "key": "gateway.controlUi.dangerouslyDisableDeviceAuth",
+        "check": lambda v: v is True,
+        "severity": "CRITICAL",
+        "title": "Device authentication completely disabled for Control UI",
+        "detail": "gateway.controlUi.dangerouslyDisableDeviceAuth is true. "
+                  "The Ed25519 challenge-response is bypassed entirely. "
+                  "Any webpage can connect and control the agent.",
+    },
+    {
         "key": "sandbox.enabled",
         "check": lambda v: v is False,
         "severity": "WARNING",
