@@ -13,6 +13,7 @@ from pathlib import Path
 from . import ioc
 from .config import (
     AUDIT_DIR,
+    OPENCLAW_AGENTS,
     OPENCLAW_CONFIG,
     OPENCLAW_CREDENTIALS,
     OPENCLAW_ENV,
@@ -92,6 +93,11 @@ class RemediationEngine:
             for child in OPENCLAW_CREDENTIALS.iterdir():
                 if child.is_file():
                     self._tighten(child, 0o600)
+
+        # Session transcript files (contain API keys, conversation data)
+        if OPENCLAW_AGENTS.is_dir():
+            for session_file in OPENCLAW_AGENTS.glob("*/sessions/*.jsonl"):
+                self._tighten(session_file, 0o600)
 
     def _tighten(self, path: Path, target: int) -> None:
         """Set permissions on *path* to *target* if currently looser."""
