@@ -23,9 +23,11 @@ class AuditEngine:
         self,
         db: Optional[FindingsDB] = None,
         sweep_interval: int = DEFAULT_SWEEP_INTERVAL_SECONDS,
+        on_finding_callback: Optional[object] = None,
     ):
         self.db = db or FindingsDB()
         self.sweep_interval = sweep_interval
+        self._on_finding_extra = on_finding_callback
         self._monitors: list[BaseMonitor] = []
         self._sweeps: list[BaseSweep] = []
         self._monitor_threads: list[threading.Thread] = []
@@ -41,6 +43,11 @@ class AuditEngine:
     def _on_finding(self, finding: Finding) -> None:
         """Callback for monitors to report findings."""
         self.db.insert(finding)
+        if callable(self._on_finding_extra):
+            try:
+                self._on_finding_extra(finding)
+            except Exception:
+                logger.warning("Finding callback failed", exc_info=True)
 
     def run_all_sweeps(self) -> list[ModuleResult]:
         """Run all registered sweeps and store results."""
@@ -142,17 +149,8 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
     from .sweeps.agent_comm_audit import AgentCommAuditSweep
     from .alerting import Alerter
 
-    engine = AuditEngine(db=db)
-
-    # Hook alerter into finding callback
     alerter = Alerter()
-    original_on_finding = engine._on_finding
-
-    def _on_finding_with_alert(finding):
-        original_on_finding(finding)
-        alerter.alert(finding)
-
-    engine._on_finding = _on_finding_with_alert
+    engine = AuditEngine(db=db, on_finding_callback=alerter.alert)
 
     # Register monitors
     for cls in [ConfigWatcher, PermissionMonitor, CredentialGuard,
@@ -169,8 +167,10 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
                 MCPSecuritySweep, DockerSecuritySweep,
                 ReverseProxyAuditSweep, NodeCVECheckSweep,
                 VSCodeTrojanCheckSweep, BehavioralBaselineSweep,
-                CredentialRotationSweep, AgentCommAuditSweep,
-                CorrelationSweep]:
+                CredentialRotationSweep, AgentCommAuditSweep]:
         engine.register_sweep(cls())
+
+    # CorrelationSweep needs access to the DB for querying recent findings
+    engine.register_sweep(CorrelationSweep(db=engine.db))
 
     return engine

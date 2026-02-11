@@ -22,15 +22,20 @@ _24_HOURS = 86400
 class CorrelationSweep(BaseSweep):
     name = "correlation"
 
+    def __init__(self, db: FindingsDB | None = None):
+        self._db = db
+
     def run(self) -> ModuleResult:
         findings: list[Finding] = []
-        db = FindingsDB()
+        db = self._db or FindingsDB()
+        owns_db = self._db is None
         try:
             self._correlate(db, findings)
         except Exception:
             logger.exception("Correlation sweep failed")
         finally:
-            db.close()
+            if owns_db:
+                db.close()
         return ModuleResult(module_name=self.name, findings=findings)
 
     def _correlate(self, db: FindingsDB, findings: list[Finding]) -> None:

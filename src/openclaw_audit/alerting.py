@@ -109,6 +109,10 @@ class Alerter:
         urllib.request.urlopen(req, timeout=10)
 
     def _send_macos_notification(self, finding: Finding, config: dict) -> None:
+        import platform
+        if platform.system() != "Darwin":
+            logger.debug("macOS notification skipped on %s", platform.system())
+            return
         title = "OpenClaw Audit: CRITICAL"
         message = finding.title
         try:

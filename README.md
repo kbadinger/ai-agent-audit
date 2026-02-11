@@ -16,19 +16,13 @@ OpenClaw is an open-source AI agent with 100k+ GitHub stars that runs locally wi
 
 ## Installation
 
-**From PyPI:**
-```bash
-pip install openclaw-audit
-```
-
-**From source:**
 ```bash
 git clone https://github.com/kbadinger/openclaw-audit.git
 cd openclaw-audit
 pip install .
 ```
 
-Requires Python 3.10+. Three dependencies: `watchdog`, `psutil`, `jinja2`.
+Requires **Python 3.10+**. Three dependencies: `watchdog`, `psutil`, `jinja2`.
 
 ## Quick Start
 
@@ -226,6 +220,14 @@ openclaw-audit
 - [CVE-2026-21636](https://nvd.nist.gov) - Node.js permission model bypass via UDS
 - [OWASP Agentic Security Top 10](https://owasp.org/www-project-agentic-ai-threats/) - ASI01-ASI10
 - [MAESTRO Framework](https://github.com/peterychang/maestro) - 7-layer threat model for agentic AI
+
+## Development
+
+```bash
+pip install -e .
+pip install pytest
+pytest tests/ -v   # 43 tests
+```
 
 ## Platform Support
 

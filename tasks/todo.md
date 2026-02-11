@@ -349,12 +349,41 @@ All source files are clean of TODO/FIXME/HACK comments.
 *W7 and I1 are noted but do not need fixes.
 
 ### Recommended Fix Priority
-1. **C1 + C2 + C3** (report score display is completely broken)
-2. **W1 + W2** (SQLite concurrency in daemon mode)
-3. **C5** (Windows crash guard)
-4. **C6** (resource leak)
-5. **W3 + W4 + I6** (security_score check correctness)
-6. **I5 + I8** (dead code cleanup)
+1. **C1 + C2 + C3** (report score display is completely broken) -- FIXED in Sprint 4
+2. **W1 + W2** (SQLite concurrency in daemon mode) -- W2 FIXED, W1 remaining
+3. **C5** (Windows crash guard) -- FIXED in Sprint 4
+4. **C6** (resource leak) -- FIXED in Sprint 4
+5. **W3 + W4 + I6** (security_score check correctness) -- FIXED in Sprint 4
+6. **I5 + I8** (dead code cleanup) -- FIXED (code already clean)
 7. **W8** (add tests)
-8. **W9** (plugin baseline refresh)
+8. **W9** (plugin baseline refresh) -- FIXED in Sprint 4
 9. Everything else
+
+---
+
+## Sprint 5: Final Bug Fixes + Tests
+
+### Bug Fixes
+- [x] W1: Fix CorrelationSweep to accept DB instance instead of creating its own
+- [x] W10: Fix alerting.py macOS notification to handle Linux gracefully
+- [x] I7: Clean up engine.py monkey-patching with proper callback support
+
+### Tests
+- [x] Test db.py (insert, dedup, get_active, resolve_stale, trend) - 7 tests
+- [x] Test config_watcher detection rules - 11 tests
+- [x] Test session_analyzer patterns - 13 tests
+- [x] Test security_score grading - 11 tests
+
+### Verification
+- [x] `pip install -e .` succeeds
+- [x] `openclaw-audit sweep` runs 20 sweeps, 37 findings
+- [x] `openclaw-audit report` generates HTML report
+- [x] `pytest tests/` - 43 tests pass
+
+## Sprint 5 Review
+
+### Changes Made
+1. **correlation.py**: Added `db` parameter to `CorrelationSweep.__init__()`. Now accepts an existing DB connection instead of always creating a new one. Falls back to creating its own if none provided.
+2. **engine.py**: Replaced monkey-patching of `_on_finding` with a proper `on_finding_callback` constructor parameter. Passed the shared `engine.db` instance to `CorrelationSweep`.
+3. **alerting.py**: Added `platform.system()` check in `_send_macos_notification()` to skip cleanly on non-macOS platforms instead of silently failing.
+4. **tests/**: Added 43 tests across 4 test files covering db operations, config detection rules, session analyzer patterns, and security score grading.
