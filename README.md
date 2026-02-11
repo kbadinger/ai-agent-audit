@@ -14,11 +14,25 @@ OpenClaw is an open-source AI agent with 100k+ GitHub stars that runs locally wi
 
 `openclaw-audit` monitors your installation for these threats and more.
 
+## Installation
+
+**From PyPI:**
+```bash
+pip install openclaw-audit
+```
+
+**From source:**
+```bash
+git clone https://github.com/kbadinger/openclaw-audit.git
+cd openclaw-audit
+pip install .
+```
+
+Requires Python 3.10+. Three dependencies: `watchdog`, `psutil`, `jinja2`.
+
 ## Quick Start
 
 ```bash
-pip install openclaw-audit
-
 # Run a one-shot security scan
 openclaw-audit sweep
 
@@ -28,8 +42,6 @@ openclaw-audit report --open
 # Start the background daemon (monitors + hourly sweeps)
 openclaw-audit start
 ```
-
-Requires Python 3.10+ and three dependencies: `watchdog`, `psutil`, `jinja2`.
 
 ## What It Checks
 
