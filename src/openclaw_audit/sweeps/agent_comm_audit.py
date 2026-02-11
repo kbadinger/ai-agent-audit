@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import defaultdict
 from pathlib import Path
 
 from ..config import (
@@ -63,6 +64,12 @@ class AgentCommAuditSweep(BaseSweep):
         ]
         agent_set = set(agents)
 
+        # Aggregation counters
+        high_volume_sessions: list[str] = []
+        messaging_counts: defaultdict[str, int] = defaultdict(int)  # "agent -> peer" -> count
+        credential_leaks: list[str] = []  # "pattern_name in agent/session"
+        escalation_findings: list[Finding] = []  # keep individual (should be rare)
+
         # Analyse session transcripts for each agent.
         for agent in agents:
             sessions_dir = OPENCLAW_AGENTS / agent / "sessions"
@@ -71,8 +78,46 @@ class AgentCommAuditSweep(BaseSweep):
 
             for session_file in sorted(sessions_dir.glob("*.jsonl")):
                 self._analyse_session(
-                    agent, session_file, agent_set, findings,
+                    agent, session_file, agent_set,
+                    high_volume_sessions, messaging_counts,
+                    credential_leaks, escalation_findings,
                 )
+
+        # Emit aggregated findings
+
+        if high_volume_sessions:
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.INFO,
+                title=f"{len(high_volume_sessions)} high-volume agent sessions",
+                detail=f"Sessions with >{_HIGH_VOLUME_THRESHOLD} entries: "
+                       + ", ".join(high_volume_sessions[:10])
+                       + (f" (+{len(high_volume_sessions) - 10} more)" if len(high_volume_sessions) > 10 else ""),
+            ))
+
+        total_messages = sum(messaging_counts.values())
+        if total_messages:
+            top_pairs = sorted(messaging_counts.items(), key=lambda x: -x[1])[:5]
+            detail_lines = [f"  {pair}: {count}x" for pair, count in top_pairs]
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.WARNING,
+                title=f"{total_messages} inter-agent messages detected",
+                detail="Top communication pairs:\n" + "\n".join(detail_lines),
+            ))
+
+        if credential_leaks:
+            samples = credential_leaks[:5]
+            extra = f"\n  ... and {len(credential_leaks) - 5} more" if len(credential_leaks) > 5 else ""
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.CRITICAL,
+                title=f"{len(credential_leaks)} credentials found in agent traffic",
+                detail="Credential patterns detected in session transcripts:\n"
+                       + "\n".join(f"  - {s}" for s in samples) + extra,
+            ))
+
+        findings.extend(escalation_findings)
 
         # Config-level checks.
         self._check_config(findings)
@@ -88,7 +133,10 @@ class AgentCommAuditSweep(BaseSweep):
         agent: str,
         session_file: Path,
         agent_set: set[str],
-        findings: list[Finding],
+        high_volume_sessions: list[str],
+        messaging_counts: defaultdict[str, int],
+        credential_leaks: list[str],
+        escalation_findings: list[Finding],
     ) -> None:
         try:
             raw_lines = session_file.read_text().splitlines()
@@ -104,13 +152,7 @@ class AgentCommAuditSweep(BaseSweep):
 
         # High volume check.
         if line_count > _HIGH_VOLUME_THRESHOLD:
-            findings.append(Finding(
-                module=self.name,
-                severity=Severity.INFO,
-                title="High-volume agent session",
-                detail=f"{agent}/{session_name} ({line_count} entries)",
-                path=str(session_file),
-            ))
+            high_volume_sessions.append(f"{agent}/{session_name} ({line_count})")
 
         for line in raw_lines:
             stripped = line.strip()
@@ -120,36 +162,17 @@ class AgentCommAuditSweep(BaseSweep):
             # Cross-agent messaging detection.
             if _MESSAGING_PATTERNS.search(stripped):
                 # Try to find target agent in the line.
+                peer = "unknown"
                 for other_agent in agent_set:
                     if other_agent != agent and other_agent in stripped:
-                        findings.append(Finding(
-                            module=self.name,
-                            severity=Severity.WARNING,
-                            title="Inter-agent message detected",
-                            detail=f"{agent} \u2192 {other_agent}",
-                            path=str(session_file),
-                        ))
+                        peer = other_agent
                         break
-                else:
-                    # Messaging call but no specific peer identified.
-                    findings.append(Finding(
-                        module=self.name,
-                        severity=Severity.WARNING,
-                        title="Inter-agent message detected",
-                        detail=f"{agent} \u2192 unknown peer",
-                        path=str(session_file),
-                    ))
+                messaging_counts[f"{agent} \u2192 {peer}"] += 1
 
             # Credential leakage detection.
             for pattern_name, regex in _SECRET_RES.items():
                 if regex.search(stripped):
-                    findings.append(Finding(
-                        module=self.name,
-                        severity=Severity.CRITICAL,
-                        title="Credential in inter-agent traffic",
-                        detail=f"{pattern_name} in {agent}/{session_name}",
-                        path=str(session_file),
-                    ))
+                    credential_leaks.append(f"{pattern_name} in {agent}/{session_name}")
                     break  # One credential finding per line is enough.
 
             # Permission escalation detection.
@@ -168,7 +191,7 @@ class AgentCommAuditSweep(BaseSweep):
                         or "",
                     )
                     if _ESCALATION_PATTERNS.search(args_str):
-                        findings.append(Finding(
+                        escalation_findings.append(Finding(
                             module=self.name,
                             severity=Severity.WARNING,
                             title="Permission escalation in agent session",
