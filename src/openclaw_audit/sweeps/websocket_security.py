@@ -74,15 +74,15 @@ class WebSocketSecuritySweep(BaseSweep):
         if "101" in response and "Switching Protocols" in response:
             findings.append(Finding(
                 module=self.name,
-                severity=Severity.CRITICAL,
-                title="CVE-2026-25253: WebSocket origin not validated",
+                severity=Severity.WARNING,
+                title="WebSocket origin not validated at HTTP upgrade",
                 detail=(
                     "Gateway accepted WebSocket upgrade from spoofed Origin "
-                    "'http://evil.attacker.com'. The HTTP upgrade does not check "
-                    "the Origin header. Origin validation only occurs later for "
-                    "Control UI / Webchat clients. A challenge-response (Ed25519) "
-                    "blocks unauthenticated commands, but this is a defense-in-depth "
-                    "failure — origin should be validated at the HTTP upgrade level."
+                    "'http://evil.attacker.com'. Origin validation only occurs "
+                    "later for Control UI / Webchat clients, not at the HTTP "
+                    "upgrade level. Ed25519 challenge-response prevents "
+                    "unauthenticated access, but origin should be checked earlier "
+                    "as defense-in-depth."
                 ),
             ))
         else:
