@@ -8,4 +8,7 @@ build/
 venv/
 .env
 *.db
+dist/
+build/
+*.egg-info/
 .claude/

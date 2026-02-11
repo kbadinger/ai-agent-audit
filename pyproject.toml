@@ -7,11 +7,36 @@ name = "openclaw-audit"
 version = "0.1.0"
 description = "Security audit daemon for OpenClaw installations"
 requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "Kevin Badinger"}]
+readme = "README.md"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
+]
+keywords = ["openclaw", "security", "audit", "ai-agent", "monitoring"]
 dependencies = [
     "watchdog>=3.0",
     "psutil>=5.9",
     "jinja2>=3.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kbadinger/openclaw-audit"
+Repository = "https://github.com/kbadinger/openclaw-audit"
+Issues = "https://github.com/kbadinger/openclaw-audit/issues"
 
 [project.scripts]
 openclaw-audit = "openclaw_audit.cli:main"
