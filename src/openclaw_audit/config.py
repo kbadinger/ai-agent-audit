@@ -19,6 +19,7 @@ OPENCLAW_WORKSPACE = OPENCLAW_HOME / "workspace"
 OPENCLAW_SKILLS = OPENCLAW_WORKSPACE / "skills"
 OPENCLAW_EXEC_APPROVALS = OPENCLAW_HOME / "exec-approvals.json"
 OPENCLAW_MCP_CONFIG = OPENCLAW_HOME / "mcp.json"
+OPENCLAW_IDENTITY = OPENCLAW_HOME / "identity"
 
 # Memory/identity files that can be poisoned
 MEMORY_FILES: list[str] = [
@@ -54,6 +55,7 @@ SENSITIVE_FILE_PATTERNS: list[str] = [
     "agents/*/sessions/*.jsonl",
     "credentials/*",
     ".env",
+    "identity/device-auth.json",
 ]
 
 # --- Insecure openclaw.json config rules ---

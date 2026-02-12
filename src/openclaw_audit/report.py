@@ -35,7 +35,7 @@ class ReportGenerator:
         trend_data = self.db.get_trend_data(days=30)
 
         # Extract security score and grade from the finding title.
-        # Title format: "Security Score: 95/135 (Grade: B)"
+        # Title format: "Security Score: 95/140 (Grade: B)"
         score = None
         grade = None
         for f in findings:

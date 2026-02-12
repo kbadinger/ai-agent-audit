@@ -92,6 +92,22 @@ class ReverseProxyAuditSweep(BaseSweep):
                     path=str(OPENCLAW_CONFIG),
                 ))
 
+        # Tailscale auth mode without trusted proxy restrictions
+        auth_mode = (gateway.get("auth") or {}).get("mode", "")
+        if auth_mode == "tailscale" and not trusted_proxies:
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.WARNING,
+                title="Tailscale auth without trusted proxy restrictions",
+                detail=(
+                    "gateway.auth.mode is 'tailscale' but trustedProxies is empty. "
+                    "Tailscale auth relies on headers (e.g. Tailscale-User) that can "
+                    "be spoofed if requests bypass the Tailscale proxy. Configure "
+                    "trustedProxies to restrict which IPs can set these headers."
+                ),
+                path=str(OPENCLAW_CONFIG),
+            ))
+
         # Tailscale funnel reference
         tailscale_keys = ["tailscale", "funnel", "tsnet"]
         config_str = json.dumps(data).lower()

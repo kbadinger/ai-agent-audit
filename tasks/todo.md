@@ -391,3 +391,28 @@ All source files are clean of TODO/FIXME/HACK comments.
 3. **alerting.py**: Added `platform.system()` check in `_send_macos_notification()` to skip cleanly on non-macOS platforms instead of silently failing.
 4. **tests/**: Added 43 tests across 4 test files covering db operations, config detection rules, session analyzer patterns, and security score grading.
 5. **correlation.py**: Fixed supply chain correlation false positive - now only correlates WARNING+ severity findings from plugin_integrity and skill_scanner, ignoring INFO-level "directory not found" findings.
+
+---
+
+## Sprint 6: Source-Informed Security Checks
+
+### Tasks
+- [x] 1. **config.py** — Add `OPENCLAW_IDENTITY` path and `identity/device-auth.json` to `SENSITIVE_FILE_PATTERNS`
+- [x] 2. **memory_poisoning_monitor.py** — Add `memory.extraPaths` traversal check (flag paths containing `..` that escape workspace)
+- [x] 3. **reverse_proxy_audit.py** — Add Tailscale auth mode + empty trustedProxies header spoofing warning
+- [x] 4. **permission_audit.py** — Detect orphaned `.tmp` files older than 1 hour during existing walk
+- [x] 5. **security_score.py** — Add check #18: memory.extraPaths has no path traversal (weight: 5), update max to 140
+- [x] 6. Run tests (`python3 -m pytest tests/ -q`) — 43 passed
+
+### Review
+
+**Files modified (7):**
+1. `config.py` — Added `OPENCLAW_IDENTITY` path, added `identity/device-auth.json` to sensitive file patterns
+2. `memory_poisoning_monitor.py` — Added `_check_extra_paths()` method that reads `memory.extraPaths` from config and flags any path resolving outside workspace (CRITICAL)
+3. `reverse_proxy_audit.py` — Added check: if `gateway.auth.mode == "tailscale"` and `trustedProxies` is empty, emit WARNING about header spoofing
+4. `permission_audit.py` — During existing `os.walk`, collects `.tmp` files older than 1 hour and emits aggregated WARNING
+5. `security_score.py` — Added check #17 "Memory extraPaths safe" (weight: 5), bumped max to 140, adjusted grade thresholds proportionally
+6. `report.py` + `report.html.j2` — Updated score display from /135 to /140
+7. `tests/test_security_score.py` — Updated grade thresholds and check count (17→18) to match
+
+**All changes are minimal additions to existing modules — no new files created.**

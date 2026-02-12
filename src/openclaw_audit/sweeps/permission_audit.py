@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import stat
-from collections import defaultdict
+import time
 from pathlib import Path
 
 from ..config import (
@@ -45,6 +45,8 @@ class PermissionAuditSweep(BaseSweep):
         # Aggregate counters for sensitive file issues (avoid 1 finding per file)
         sensitive_world_readable: list[str] = []
         sensitive_too_permissive: list[str] = []
+        orphaned_tmp_files: list[str] = []
+        one_hour_ago = time.time() - 3600
 
         for dirpath, dirnames, filenames in os.walk(OPENCLAW_HOME):
             entries = [os.path.join(dirpath, d) for d in dirnames]
@@ -106,6 +108,14 @@ class PermissionAuditSweep(BaseSweep):
                             path=entry,
                         ))
 
+                # --- Orphaned .tmp file check ---
+                if (
+                    stat.S_ISREG(mode)
+                    and entry.endswith(".tmp")
+                    and st.st_mtime < one_hour_ago
+                ):
+                    orphaned_tmp_files.append(entry)
+
                 # --- Sensitive file checks: aggregate into summaries ---
                 if is_sensitive and stat.S_ISREG(mode):
                     if mode & stat.S_IROTH:
@@ -124,6 +134,17 @@ class PermissionAuditSweep(BaseSweep):
                 severity=Severity.WARNING,
                 title=f"{len(sensitive_too_permissive)} sensitive files too permissive",
                 detail=f"Expected mode 0o600 or stricter:\n{sample_text}{extra}",
+            ))
+
+        if orphaned_tmp_files:
+            samples = orphaned_tmp_files[:5]
+            sample_text = "\n".join(f"  - {p}" for p in samples)
+            extra = f"\n  ... and {len(orphaned_tmp_files) - 5} more" if len(orphaned_tmp_files) > 5 else ""
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.WARNING,
+                title=f"{len(orphaned_tmp_files)} orphaned .tmp files found",
+                detail=f"Temp files older than 1 hour may contain sensitive data:\n{sample_text}{extra}",
             ))
 
         if sensitive_world_readable:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -14,6 +15,7 @@ from ..config import (
     INJECTION_PATTERNS,
     MEMORY_FILES,
     MONITOR_POLL_INTERVAL_SECONDS,
+    OPENCLAW_CONFIG,
     OPENCLAW_WORKSPACE,
 )
 from ..models import Finding, Severity
@@ -94,13 +96,46 @@ class MemoryPoisoningMonitor(BaseMonitor):
             self._running.wait(MONITOR_POLL_INTERVAL_SECONDS)
 
     def _scan_all(self) -> None:
-        """Scan all known memory files."""
+        """Scan all known memory files and config extra paths."""
+        self._check_extra_paths()
         if not self._workspace.exists():
             return
         for fname in MEMORY_FILES:
             fpath = self._workspace / fname
             if fpath.exists():
                 self._check_file(fpath)
+
+    def _check_extra_paths(self) -> None:
+        """Check memory.extraPaths for path traversal escaping the workspace."""
+        if not OPENCLAW_CONFIG.exists():
+            return
+        try:
+            data = json.loads(OPENCLAW_CONFIG.read_text())
+        except (json.JSONDecodeError, OSError):
+            return
+        extra_paths = (data.get("memory") or {}).get("extraPaths") or []
+        if not isinstance(extra_paths, list):
+            return
+        workspace = str(self._workspace.resolve())
+        for p in extra_paths:
+            if not isinstance(p, str):
+                continue
+            try:
+                resolved = str((self._workspace / p).resolve())
+            except (OSError, ValueError):
+                continue
+            if not resolved.startswith(workspace + "/") and resolved != workspace:
+                self.report_finding(Finding(
+                    module=self.name,
+                    severity=Severity.CRITICAL,
+                    title="Memory extraPaths escapes workspace",
+                    detail=(
+                        f"memory.extraPaths entry '{p}' resolves to '{resolved}' "
+                        f"which is outside the workspace '{workspace}'. "
+                        "An attacker could read or poison files outside the workspace."
+                    ),
+                    path=str(OPENCLAW_CONFIG),
+                ))
 
     def _check_file(self, fpath: Path) -> None:
         """Check a single file for injection patterns."""

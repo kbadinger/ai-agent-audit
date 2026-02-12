@@ -4,27 +4,27 @@ from openclaw_audit.sweeps.security_score import _grade, _get_nested
 
 
 def test_grade_a():
-    assert _grade(135) == "A"
-    assert _grade(120) == "A"
+    assert _grade(140) == "A"
+    assert _grade(125) == "A"
 
 
 def test_grade_b():
-    assert _grade(119) == "B"
-    assert _grade(100) == "B"
+    assert _grade(124) == "B"
+    assert _grade(105) == "B"
 
 
 def test_grade_c():
-    assert _grade(99) == "C"
-    assert _grade(80) == "C"
+    assert _grade(104) == "C"
+    assert _grade(85) == "C"
 
 
 def test_grade_d():
-    assert _grade(79) == "D"
-    assert _grade(60) == "D"
+    assert _grade(84) == "D"
+    assert _grade(65) == "D"
 
 
 def test_grade_f():
-    assert _grade(59) == "F"
+    assert _grade(64) == "F"
     assert _grade(0) == "F"
 
 
@@ -61,7 +61,7 @@ def test_sweep_runs_without_openclaw():
     finding = result.findings[0]
     assert "Security Score:" in finding.title
     assert "Grade:" in finding.title
-    assert "/135" in finding.title
+    assert "/140" in finding.title
 
 
 def test_sweep_score_range():
@@ -71,12 +71,12 @@ def test_sweep_score_range():
     result = sweep.run()
     finding = result.findings[0]
 
-    # Parse score from title "Security Score: X/135 (Grade: Y)"
+    # Parse score from title "Security Score: X/140 (Grade: Y)"
     import re
-    m = re.search(r"(\d+)/135", finding.title)
+    m = re.search(r"(\d+)/140", finding.title)
     assert m is not None
     score = int(m.group(1))
-    assert 0 <= score <= 135
+    assert 0 <= score <= 140
 
 
 def test_sweep_detail_has_all_checks():
@@ -89,4 +89,4 @@ def test_sweep_detail_has_all_checks():
     # Should contain PASS or FAIL for each check
     pass_count = detail.count("[PASS]")
     fail_count = detail.count("[FAIL]")
-    assert pass_count + fail_count == 17
+    assert pass_count + fail_count == 18

@@ -1,4 +1,4 @@
-"""Compute a weighted 0-135 security score with letter grade."""
+"""Compute a weighted 0-140 security score with letter grade."""
 
 from __future__ import annotations
 
@@ -45,13 +45,13 @@ def _get_nested(data: dict, dotted_key: str):
 
 
 def _grade(score: int) -> str:
-    if score >= 120:
+    if score >= 125:
         return "A"
-    if score >= 100:
+    if score >= 105:
         return "B"
-    if score >= 80:
+    if score >= 85:
         return "C"
-    if score >= 60:
+    if score >= 65:
         return "D"
     return "F"
 
@@ -253,7 +253,24 @@ class SecurityScoreSweep(BaseSweep):
                 pass
         checks.append(("MCP servers restricted", 5, mcp_ok))
 
-        # 17. WebSocket origin validated (5)
+        # 17. Memory extraPaths has no path traversal (5)
+        extra_paths_ok = True
+        extra_paths = _get_nested(config, "memory.extraPaths") or []
+        if isinstance(extra_paths, list) and OPENCLAW_WORKSPACE.exists():
+            workspace = str(OPENCLAW_WORKSPACE.resolve())
+            for p in extra_paths:
+                if not isinstance(p, str):
+                    continue
+                try:
+                    resolved = str((OPENCLAW_WORKSPACE / p).resolve())
+                except (OSError, ValueError):
+                    continue
+                if not resolved.startswith(workspace + "/") and resolved != workspace:
+                    extra_paths_ok = False
+                    break
+        checks.append(("Memory extraPaths safe", 5, extra_paths_ok))
+
+        # 18. WebSocket origin validated (5)
         gw_port = _get_nested(config, "gateway.port")
         gw_auth = _get_nested(config, "gateway.auth.enabled")
         ws_ok = not (gw_port in (None, 3000, 8080) and gw_auth is not True)
@@ -267,7 +284,7 @@ class SecurityScoreSweep(BaseSweep):
         grade = _grade(score)
 
         # Build detail report
-        detail_lines = [f"Security Score: {score}/135 (Grade: {grade})", ""]
+        detail_lines = [f"Security Score: {score}/140 (Grade: {grade})", ""]
         for name, weight, passed in checks:
             status = "PASS" if passed else "FAIL"
             detail_lines.append(f"  [{status}] {name} (weight: {weight})")
@@ -281,7 +298,7 @@ class SecurityScoreSweep(BaseSweep):
         findings.append(Finding(
             module=self.name,
             severity=severity,
-            title=f"Security Score: {score}/135 (Grade: {grade})",
+            title=f"Security Score: {score}/140 (Grade: {grade})",
             detail="\n".join(detail_lines),
         ))
 
