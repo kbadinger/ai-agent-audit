@@ -416,3 +416,412 @@ All source files are clean of TODO/FIXME/HACK comments.
 7. `tests/test_security_score.py` — Updated grade thresholds and check count (17→18) to match
 
 **All changes are minimal additions to existing modules — no new files created.**
+
+---
+
+## Research: Best-in-Class Security Audit Tool Patterns (2025-2026)
+
+### Status: Complete
+
+---
+
+### R1. What Makes Semgrep, Trivy, Falco, OSSEC/Wazuh, and Snyk Industry-Standard
+
+**Semgrep -- The Programmable SAST Engine**
+- Core differentiator: YAML-based rule authoring that mirrors target language syntax. Security engineers can write a useful rule in minutes.
+- Architecture: Parses code via tree-sitter into a language-agnostic AST. Rules use metavariables (`$X`) and ellipsis operators (`...`) for pattern matching. Pro Engine adds cross-file/cross-function taint tracking.
+- Speed: Scans complete in 10-30 seconds in CI. Single binary, zero external dependencies.
+- Rule ecosystem: 3,000+ community rules + 20,000+ proprietary Pro rules.
+- What makes it "industry standard": Open-source core (LGPL-2.1) + commercial platform. Free for 10 contributors. Custom rule authoring is best-in-class. Every finding is traceable to a readable YAML rule.
+
+**Snyk -- The Developer Security Platform**
+- Core differentiator: Breadth. SCA + SAST + Container + IaC + DAST in one platform. Gartner Magic Quadrant Leader 2024-2025.
+- SCA flagship: Monitors 15M+ packages. Auto-generates fix PRs with dependency upgrades. Reachability analysis for Java/JS/TS.
+- SAST: DeepCode AI semantic analysis. Real-time IDE scanning (VS Code, JetBrains, Eclipse, Cursor).
+- What makes it "industry standard": Automated remediation (fix PRs), unified dashboard, Forrester Wave Leader for SCA (Q4 2024).
+
+**Trivy -- The Zero-Config Open-Source Scanner**
+- Core differentiator: Single CLI binary, zero-config, completely free with no feature gates.
+- Coverage: SCA, container images, IaC (Terraform/K8s/Dockerfiles), Kubernetes security, SBOM generation, secrets detection.
+- K8s native: Operator-based deployment with CRD reports.
+- What makes it "industry standard": Zero cost, zero friction. Pair with Semgrep for SAST = fully free security stack.
+
+**Falco -- Runtime Syscall-Level Security**
+- Core differentiator: eBPF-based kernel-level visibility into every system call. Detects runtime compromise, not just static vulnerabilities.
+- Architecture: Hooks into Linux kernel via eBPF probe. Rules evaluate against syscall events in real time. DaemonSet pattern for K8s.
+- Detection: Unexpected process execution, container privilege escalation, sensitive file access, shell spawns, crypto mining, unexpected outbound connections.
+- Output routing: Falcosidekick forwards alerts to Elasticsearch, S3, Kafka, Slack, PagerDuty.
+- What makes it "industry standard": CNCF graduated project. Fills the "runtime" gap. Rule-based YAML syntax.
+
+**Wazuh (successor to OSSEC) -- Open-Source SIEM/XDR**
+- Core differentiator: Unified HIDS + SIEM + XDR in one open-source platform. Forked from OSSEC in 2015.
+- Architecture (v5.0): New engine replacing Analysisd bottleneck. eBPF-based FIM. OpenSearch indexer with clustering. Agent-server model scales to thousands of endpoints.
+- Capabilities: File integrity monitoring, vulnerability detection, log analysis, intrusion detection, active response (10-15 auto-response scripts), configuration assessment, container/K8s/cloud security.
+- Compliance: Built-in dashboards for PCI DSS, GDPR, HIPAA, NIST 800-53. Pre-built rules and reports.
+- What makes it "industry standard": Enterprise-grade at zero cost. Integrates with Falco. API-first (RESTful). MITRE ATT&CK mapping built in.
+
+---
+
+### R2. Output Formats Best Security Tools Support
+
+**SARIF (Static Analysis Results Interchange Format)**
+- Standard: OASIS SARIF v2.1.0 (errata 01, Aug 2023). v2.2 in development.
+- Purpose: Universal interchange format for static analysis results. Required by GitHub Code Scanning. Supported by SonarQube, CodeQL, Semgrep, and most major tools.
+- Key fields: `runs[].tool.driver.name`, `runs[].results[]` with `message.text`, `locations[].physicalLocation` (file/line/column), `rules[]` with severity.
+- Recommendation: **Must-have**. Emit SARIF v2.1.0 for every scan.
+
+**STIX 2.1 (Structured Threat Information eXpression)**
+- Purpose: Machine-readable threat intelligence sharing. Used by MITRE ATT&CK and ATLAS for their data.
+- Key objects: Indicators, Observed Data, Attack Patterns, Malware, Threat Actors, Relationships.
+- Tooling: MITRE ATT&CK Data Model (TypeScript/Zod), TAXII 2.1 API, MISP-STIX library.
+- Recommendation: **Important for IOC sharing**. IOC database should be exportable as STIX 2.1 bundles.
+
+**MITRE ATT&CK Mapping**
+- Every finding should include `technique_id` (e.g., T1558.003), `tactic` (e.g., Credential Access).
+- YAML mapping separating technique IDs from query language. IDs are stable; queries change.
+- Navigator layers: Export coverage maps as ATT&CK Navigator JSON.
+- Recommendation: **Must-have**. Every finding should carry ATT&CK technique IDs.
+
+**MITRE ATLAS Mapping (for AI-specific threats)**
+- 15 tactics, 66 techniques, 46 sub-techniques as of October 2025.
+- Data available in STIX 2.1 format.
+- Recommendation: **Must-have**. AI/agent-specific findings should map to ATLAS technique IDs (AML.Txxxx).
+
+**Additional Formats**
+- CycloneDX / SPDX: SBOM generation.
+- JSON/JSONL: Streaming to SIEM (Wazuh, Splunk, Elastic).
+- CSV: Non-technical stakeholders.
+- HTML: Standalone reports (already implemented).
+
+---
+
+### R3. openclaw-security-monitor (by adibirzu)
+
+**What it does**: Host-level security scanner that runs OUTSIDE the OpenClaw agent as independent monitoring. 59-point security scan covering C2 infrastructure, credential theft, memory poisoning, WebSocket hijacking, and 50+ additional attack vectors.
+
+**Detection capabilities**:
+- ClawHavoc campaign (824+ malicious skills across ClawHub)
+- AMOS/Atomic Stealer, Vidar infostealer
+- CVE-2026-25253 (WebSocket), CVE-2026-28363 (safeBins bypass, CVSS 9.9)
+- 35+ CVEs and 40+ GHSAs
+- Memory poisoning via SOUL.md/MEMORY.md injection
+- MCP tool poisoning, SANDWORM worm propagation
+- Hidden Unicode injection in rules files
+
+**Architecture**: Shell-script based (scan.sh, remediate.sh). IOC files (C2 IPs, domains, hashes, publisher blacklists). Node.js dashboard (zero npm deps). Daily scans with Telegram alerting.
+
+**Key differences from openClawAudit**:
+- adibirzu: Shell-script scanner, IOC-focused, no daemon, no structured output formats, installs as OpenClaw skill
+- openClawAudit: Python daemon, continuous monitoring, structured Finding model, SQLite persistence, sweep+monitor architecture, behavioral baselines, security scoring, remediation engine
+
+---
+
+### R4. OWASP Agentic AI Top 10 (2026)
+
+Released December 2025. Peer-reviewed by 100+ researchers. Endorsed by Microsoft, NVIDIA, AWS, GoDaddy.
+
+| ID | Risk | Description |
+|---|---|---|
+| ASI01 | Agent Goal Hijack | Attackers redirect agent's entire planning via malicious text |
+| ASI02 | Tool Misuse & Exploitation | Agent uses authorized tools destructively |
+| ASI03 | Identity & Privilege Abuse | Agents inherit/escalate/share credentials without scoping |
+| ASI04 | Supply Chain Vulnerabilities | Malicious tools, MCP servers, agent cards, registries |
+| ASI05 | Unexpected Code Execution | Agent-generated code bypasses traditional controls |
+| ASI06 | Memory & Context Poisoning | Persistent corruption of agent memory/embeddings |
+| ASI07 | Insecure Inter-Agent Communication | Weaknesses in agent-to-agent protocols |
+| ASI08 | Cascading Failures | Single fault propagates across agents into system-wide harm |
+| ASI09 | Human-Agent Trust Exploitation | Anthropomorphism/authority bias weaponized |
+| ASI10 | Rogue Agents | Behavioral drift, collusion, self-replication |
+
+**Three Core Principles**:
+1. Least Agency: Don't deploy agentic behavior where not needed.
+2. Human-in-the-Loop: Require human approval for high-impact/irreversible actions.
+3. Comprehensive Observability: Immutable, signed audit logs of ALL agent actions.
+
+**Defense-in-Depth Architecture**:
+- Layer 1: Input Validation (prompt firewalls, sanitization, rate limiting)
+- Layer 2: Agent Sandbox (isolated execution, resource limits, no direct prod access)
+- Layer 3: Tool Security (parameterized calls, tool-level auth, I/O validation)
+- Layer 4: Monitoring & Audit (immutable logs, behavioral anomaly detection, alerting)
+
+---
+
+### R5. MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
+
+- Extension of MITRE ATT&CK for AI/ML systems.
+- As of October 2025: **15 tactics, 66 techniques, 46 sub-techniques, 26 mitigations, 33 case studies**.
+- Data in STIX 2.1 format for machine-readable integration.
+- ~70% of ATLAS mitigations map to existing security controls.
+- Complements OWASP LLM Top 10 and NIST AI RMF -- use all three.
+
+**October 2025 update** (with Zenity Labs): Added 14 new agentic AI techniques covering AI Service API exploitation (AML.T0096), tool-use manipulation, prompt injection at orchestration layer, memory manipulation, delegated authority persistence.
+
+**MITRE ATLAS OpenClaw Investigation (Feb 2026)**: MITRE conducted rapid investigation of OpenClaw specifically, mapping critical incidents to ATLAS TTPs, identifying high-risk attack chains. Published at mitre.org.
+
+---
+
+### R6. Security Tools Specifically for AI Agents / LLM Applications (2026)
+
+**Red Teaming**: Giskard, PyRIT (Microsoft), Promptfoo, DeepTeam (MITRE ATLAS-mapped)
+**Guardrails**: NVIDIA NeMo Guardrails, Guardrails AI, LLM Guard, AgentWard, Akto AgentGuard, Lakera Guard, Datadog AI Guard
+**Identity/Access**: Keycloak, Open Policy Agent (OPA), Casbin
+**Observability**: Langfuse, OpenTelemetry, Arize AI, WhyLabs, Datadog LLM Observability
+**Supply Chain**: Sigstore, Trivy, Protect AI
+
+**AgentWard** (Apache 2.0, Feb 2026) -- most relevant comparison:
+- Permission control plane for AI agents, sits between agents and tools
+- Enforces least-privilege in code, outside the LLM context window
+- Already has OpenClaw gateway integration: `agentward inspect --gateway openclaw`
+- Regulatory compliance: HIPAA, SOX, GDPR, PCI-DSS v4.0
+
+**2026 consensus**: Guardrails + Runtime Monitoring > Everything else. Agentic systems are dynamic; security must be dynamic too.
+
+---
+
+### R7. What Separates "Good" from "Industry Standard" -- Actionable Patterns
+
+**Architecture**: Rule-as-code (every detection is readable/versionable YAML), agent-server model, plugin/module architecture, API-first, event-driven pipeline.
+
+**Output & Integration**: SARIF output, STIX 2.1 export, ATT&CK/ATLAS technique IDs, JSON streaming to SIEM, webhook alerting, Navigator layer export.
+
+**Detection**: Static scanning + runtime monitoring (not either/or), behavioral baselines, IOC matching, taint tracking, reachability analysis.
+
+**Compliance**: Built-in compliance dashboards (PCI DSS, GDPR, HIPAA, NIST 800-53, ISO 42001), OWASP Agentic Top 10 mapping, SBOM generation, immutable audit logs, security scoring, maturity model.
+
+**Developer Experience**: Sub-30s scans, IDE integration, PR/MR comments, auto-fix PRs, free/open-source core, CLI-first with optional web dashboard.
+
+**openClawAudit gaps to close for "industry standard"**:
+- [ ] SARIF v2.1.0 output format
+- [ ] MITRE ATT&CK technique IDs on every finding
+- [ ] MITRE ATLAS technique IDs on AI-specific findings
+- [ ] OWASP Agentic Top 10 (ASI01-ASI10) mapping on findings
+- [ ] STIX 2.1 export for IOC sharing
+- [ ] JSON/JSONL streaming output for SIEM integration
+- [ ] YAML-based custom rule authoring (user-extensible rules)
+- [ ] Webhook alerting expansion (already have Slack/Telegram -- need generic webhook)
+- [ ] CycloneDX SBOM generation for agent dependencies
+- [ ] Compliance framework mapping (EU AI Act, NIST AI RMF, ISO 42001)
+- [ ] ATT&CK/ATLAS Navigator layer export
+- [ ] API endpoint for programmatic access
+
+---
+
+## Sprint 7: Self-Learning Cycle
+
+**Goal:** Make the tool get smarter over time. Every human triage action improves future detection quality. Findings carry confidence scores that calibrate automatically based on true/false positive rates.
+
+### Tasks
+
+- [x] 1. **models.py** — Enrich `Finding` with: `confidence` (float 0.0-1.0, default 0.5), `triage_status` (None/"confirmed"/"false_positive"/"dismissed"), `mitre_attack` (str, optional), `owasp_asi` (str, optional), `remediation` (str, optional)
+- [x] 2. **db.py** — Add columns: `confidence REAL`, `triage_status TEXT`, `triage_timestamp REAL`, `mitre_attack TEXT`, `owasp_asi TEXT`, `remediation TEXT`. Auto-migrate existing DBs via `ALTER TABLE`.
+- [x] 3. **db.py** — Add `triage()` method (sets status + timestamp), `get_precision_stats()` (returns confirmed/fp counts per module+title), `get_triageable()` (active findings for triage UI)
+- [x] 4. **learner.py** (new) — `PrecisionTracker`: loads triage stats from DB, calculates precision per (module, title). Stores to `baselines/precision.json`. Method `calibrate(finding) -> float` returns adjusted confidence = base × precision_multiplier. Multiplier: 1.0 for no data, scales linearly with precision rate.
+- [x] 5. **profile.py** (new) — `EnvironmentProfiler`: detects Docker installed, MCP config present, skill count, proxy config, OS. Stores to `baselines/environment.json`. Method `is_relevant(check_name) -> bool` so sweeps can skip irrelevant checks.
+- [x] 6. **behavioral_baseline.py** — Rolling window: store last 7 snapshots instead of single snapshot. Anomaly thresholds = mean ± 2σ instead of hardcoded 3x/5x multipliers.
+- [x] 7. **ioc.py** — Add `last_matched` timestamp tracking per IOC. After 90 days unmatched → lower confidence. After 180 days → mark stale.
+- [x] 8. **engine.py** — Load `PrecisionTracker` on startup. Apply `calibrate()` to every finding before insert. Pass `EnvironmentProfiler` to sweeps. Skip alerts for findings with confidence < 0.2.
+- [x] 9. **cli.py** — Add `triage` command: `openclaw-audit triage` (list findings), `openclaw-audit triage <id> --confirm|--fp|--dismiss`. After triage, re-run learner to update precision scores.
+- [x] 10. **alerting.py** — Respect confidence: only alert findings with confidence ≥ 0.5 (configurable). Include confidence score and MITRE mapping in alert messages.
+- [x] 11. **Tests** — 18 new tests in test_learning_cycle.py (models, DB triage, precision stats, calibration math)
+- [x] 12. **Review** — see below
+
+### Review
+
+**Files modified (7):**
+1. `models.py` — Added 5 fields: confidence, triage_status, mitre_attack, owasp_asi, remediation
+2. `db.py` — Added 6 columns with auto-migration, insert writes new fields, added triage(), get_precision_stats(), get_triageable()
+3. `engine.py` — Loads PrecisionTracker + EnvironmentProfiler, calibrates confidence on all findings, skips irrelevant sweeps, gates alerting at confidence < 0.2
+4. `cli.py` — Added `triage` command with list/confirm/fp/dismiss modes
+5. `alerting.py` — Confidence gate (min_alert_confidence config), enriched messages with MITRE/OWASP tags
+6. `behavioral_baseline.py` — Rewritten: rolling window of 7 snapshots, mean ± 2σ anomaly detection, auto-migrates old format
+7. `ioc.py` — Added IOC aging: record_ioc_match(), ioc_confidence(), stale at 90d (0.3), very stale at 180d (0.1)
+
+**Files created (3):**
+1. `learner.py` — PrecisionTracker: calibrates confidence from triage feedback, MIN_SAMPLES=3, multiplier floors at 0.2
+2. `profile.py` — EnvironmentProfiler: detects Docker/MCP/skills/gateway/OS, is_relevant() for sweep gating
+3. `tests/test_learning_cycle.py` — 18 tests covering models, DB, triage, precision, calibration
+
+**Test results:** 61 passed (43 existing + 18 new), 0.17s
+**CLI verified:** `openclaw-audit triage` lists findings, `openclaw-audit sweep` runs with learning cycle wired in
+
+---
+
+## Sprint 7b: Finding Enrichment, IOC Aging Wiring, Report Upgrade
+
+### Tasks
+- [x] 1. **mappings.py** (new) — 110-entry mapping table: (module, title_prefix) → {confidence, mitre_attack, owasp_asi, remediation}. `enrich()` function does prefix matching and fills fields centrally.
+- [x] 2. **engine.py** — Call `enrich(finding)` before `calibrate(finding)` in both `_on_finding()` and `run_all_sweeps()`. Load IOC matches on init, save after sweep cycles.
+- [x] 3. **skill_scanner.py, network_monitor.py, network_forensics.py** — Call `record_ioc_match()` when C2 IPs, C2 ports, or exfil domains match. IOC aging is now live.
+- [x] 4. **report.html.j2** — Added confidence bars (green/yellow/red), MITRE ATT&CK tags (blue), OWASP ASI tags (purple), triage status badges, remediation blocks with green border.
+- [x] 5. **db.py** — Dedup UPDATE now backfills mitre_attack, owasp_asi, remediation via COALESCE.
+- [x] 6. **tests/test_mappings.py** — 16 new tests covering enrich() for all major finding types, IOC aging confidence, prefix matching edge cases.
+
+### Review
+
+**Files modified (6):**
+1. `engine.py` — Added `enrich()` call + `load_ioc_matches()`/`save_ioc_matches()` lifecycle
+2. `db.py` — Dedup UPDATE now backfills MITRE/OWASP/remediation fields
+3. `network_monitor.py` — Added `record_ioc_match()` on C2 IP and C2 port matches
+4. `network_forensics.py` — Added `record_ioc_match()` on C2 IP, C2 port, and exfil domain matches
+5. `skill_scanner.py` — Added `record_ioc_match()` on C2 IP and exfil domain matches
+6. `report.html.j2` — New CSS + rendering for confidence, MITRE tags, OWASP tags, triage badges, remediation blocks
+
+**Files created (2):**
+1. `mappings.py` — 110-entry centralized enrichment table with `enrich()` function
+2. `tests/test_mappings.py` — 16 tests for enrichment and IOC aging
+
+**Test results:** 77 passed (43 original + 18 learning cycle + 16 mappings), 0.17s
+**Enrichment verified:** 6/15 latest sweep findings fully enriched (remaining 9 are INFO-level with no attack technique mapping, which is correct)
+**Report verified:** HTML report renders 72 new UI elements (confidence bars, MITRE tags, OWASP tags, remediation blocks)
+
+---
+
+## Sprint 8: Output Formats, Missing CVEs & Detection Gaps
+
+**Goal:** Close the biggest gaps blocking industry credibility: standard output formats (SARIF, JSONL), missing critical CVE coverage, generic webhook alerting, and MCP rug-pull detection (differentiator).
+
+### Tasks
+
+- [x] 1. **sarif.py** (new) — SARIF v2.1.0 output formatter
+- [x] 2. **export.py** (new) — Unified export: SARIF, JSONL, CSV
+- [x] 3. **cli.py** — Added `export` command with --format and --output flags
+- [x] 4. **alerting.py** — Added `webhook` backend (POST JSON to any URL with custom headers)
+- [x] 5. **sweeps/safebins_bypass.py** (new) — CVE-2026-28363 safeBins bypass detection (CVSS 9.9)
+- [x] 6. **sweeps/mcp_rugpull.py** (new) — MCP tool definition mutation detection (rug-pull attacks)
+- [x] 7. **mappings.py** — Added 10 enrichment entries for safebins_bypass and mcp_rugpull
+- [x] 8. **engine.py** — Registered SafeBinsBypassSweep and MCPRugPullSweep
+- [x] 9. **Tests** — 41 new tests: test_sarif.py (12), test_export.py (9), test_safebins.py (11), test_mcp_rugpull.py (9)
+- [x] 10. **Verification** — pip install ✓, 22 sweeps ✓, export works ✓, 118 tests pass ✓
+
+### Review
+
+**Files created (8):**
+1. `sarif.py` — SARIF v2.1.0 formatter with severity mapping, rule dedup, location/tags/help
+2. `export.py` — Unified export: SARIF, JSONL, CSV with file/stdout output
+3. `sweeps/safebins_bypass.py` — CVE-2026-28363: dangerous bins, bypass patterns, symlinks, relative paths
+4. `sweeps/mcp_rugpull.py` — Tool description hash baseline + mutation detection
+5. `tests/test_sarif.py` — 12 tests
+6. `tests/test_export.py` — 9 tests
+7. `tests/test_safebins.py` — 11 tests
+8. `tests/test_mcp_rugpull.py` — 9 tests
+
+**Files modified (4):**
+1. `cli.py` — Added `export` command with --format and --output flags
+2. `alerting.py` — Added `webhook` backend (POST JSON to any URL with custom headers)
+3. `mappings.py` — Added 10 enrichment entries for safebins_bypass and mcp_rugpull
+4. `engine.py` — Registered SafeBinsBypassSweep and MCPRugPullSweep
+
+**Test results:** 118 passed (77 existing + 41 new), 0.27s
+**Sweep results:** 22 sweeps, 17 findings (both new sweeps producing findings)
+**Export verified:** SARIF (58 results), JSONL (58 lines), CSV (58 rows)
+
+### Updated Project Stats
+- **51 source files** (50 .py + 1 .j2)
+- **7 always-on monitors**
+- **22 periodic sweeps** (+2: safebins_bypass, mcp_rugpull)
+- **9 CLI commands** (+1: export)
+- **5 alert backends** (+1: webhook)
+- **3 export formats** (new: SARIF v2.1.0, JSONL, CSV)
+- **118 tests** (+41 new)
+
+---
+
+## Sprint 9: Detection Hardening
+
+**Goal:** Close detection gaps — hidden Unicode injection, SANDWORM worm propagation, cascading failure detection (ASI08), social engineering patterns (ASI09), and MCP IOC cross-referencing.
+
+### Tasks
+- [x] 1. **sweeps/unicode_injection.py** (new) — Scan config/memory/skill files for invisible Unicode (zero-width, bidi overrides, tag chars, homoglyphs)
+- [x] 2. **sweeps/worm_propagation.py** (new) — Detect self-replicating agent patterns (skill-to-skill writes, pipe-to-shell, auto-install config, cross-skill references)
+- [x] 3. **correlation.py** — Added 2 new cascade patterns: cascading_failure (4+ modules failing + crashes), resource_exhaustion_chain (spikes + crashes)
+- [x] 4. **session_analyzer.py** — Added 6 social engineering patterns: urgency manipulation, false authority, secrecy pressure, security disabling, dangerous command coaching, anthropomorphic trust exploitation
+- [x] 5. **mcp_security.py** — Added IOC cross-reference: check tool descriptions + server args against C2 IPs, malicious domains, abused services from IOC database
+- [x] 6. **mappings.py** — Added 15 enrichment entries for new sweeps and enhanced detections
+- [x] 7. **engine.py** — Registered UnicodeInjectionSweep and WormPropagationSweep
+- [x] 8. **Tests** — 32 new tests: test_unicode_injection.py (10), test_worm_propagation.py (9), test_social_engineering.py (13)
+- [x] 9. **Verification** — pip install ✓, 24 sweeps ✓, 150 tests pass ✓
+
+### Review
+
+**Files created (5):**
+1. `sweeps/unicode_injection.py` — 9 invisible char types, 11 bidi chars, tag range, 12 homoglyph pairs
+2. `sweeps/worm_propagation.py` — 7 code patterns, 3 metadata patterns, 3 config indicators, cross-skill detection
+3. `tests/test_unicode_injection.py` — 10 tests
+4. `tests/test_worm_propagation.py` — 9 tests
+5. `tests/test_social_engineering.py` — 13 tests
+
+**Files modified (4):**
+1. `correlation.py` — Added cascading_failure + resource_exhaustion_chain patterns
+2. `session_analyzer.py` — Added 6 social engineering detection patterns
+3. `mcp_security.py` — Added IOC cross-reference for C2 IPs + malicious domains in tool descriptions + server args
+4. `mappings.py` — Added 15 enrichment entries
+5. `engine.py` — Registered 2 new sweeps
+
+**Test results:** 150 passed (118 existing + 32 new), 0.29s
+**Sweep results:** 24 sweeps registered, 7 monitors
+
+### Updated OWASP Coverage
+| Risk | Before | After | Change |
+|------|--------|-------|--------|
+| ASI01 Agent Goal Hijack | ~70% | ~80% | +unicode injection detection |
+| ASI04 Supply Chain | ~70% | ~80% | +MCP IOC cross-ref, rug-pull |
+| ASI05 Code Execution | ~50% | ~65% | +safeBins bypass (CVE-2026-28363) |
+| ASI08 Cascading Failures | ~30% | ~55% | +cascade + resource exhaustion correlation |
+| ASI09 Human-Agent Trust | ~50% | ~65% | +social engineering patterns |
+| ASI10 Rogue Agents | ~60% | ~75% | +worm propagation detection |
+
+### Updated Project Stats
+- **56 source files** (55 .py + 1 .j2)
+- **7 always-on monitors**
+- **24 periodic sweeps** (+4: safebins_bypass, mcp_rugpull, unicode_injection, worm_propagation)
+- **9 CLI commands**
+- **5 alert backends**
+- **3 export formats** (SARIF v2.1.0, JSONL, CSV)
+- **150 tests**
+
+---
+
+## Sprint 10: Ecosystem Integration
+
+**Goal:** Make the tool extensible and interoperable — YAML custom rules, ATT&CK Navigator layer export, STIX 2.1 threat intel sharing, CycloneDX SBOM generation.
+
+### Tasks
+- [x] 1. **rules.py** (new) — YAML custom rule engine with minimal YAML parser (no PyYAML dependency). Three targets: file_content, config_value, file_exists. Loaded from ~/.openclaw/.audit/rules/*.yaml.
+- [x] 2. **navigator.py** (new) — ATT&CK Navigator layer export. Maps technique IDs to severity colors (red/yellow/blue), generates importable JSON for Navigator v5.1.
+- [x] 3. **stix.py** (new) — STIX 2.1 export. Findings as Indicator objects, IOC database as separate bundle with C2 IPs, domains, hashes, threat actors.
+- [x] 4. **sbom.py** (new) — CycloneDX 1.5 SBOM. Scans skills, MCP servers, extensions with version/author/license metadata.
+- [x] 5. **export.py + cli.py** — Added 4 new export formats: navigator, stix, stix-ioc, sbom. Total: 7 formats.
+- [x] 6. **engine.py** — Registered CustomRulesSweep (25 sweeps total).
+- [x] 7. **Tests** — 38 new tests: test_rules.py (7), test_navigator.py (9), test_stix.py (11), test_sbom.py (7), plus 4 more in test_export.py updates.
+- [x] 8. **Verification** — pip install ✓, 25 sweeps ✓, 7 export formats ✓, 188 tests pass ✓
+
+### Review
+
+**Files created (8):**
+1. `rules.py` — YAML rule engine with built-in parser, 3 rule targets, auto-load from rules dir
+2. `navigator.py` — ATT&CK Navigator layer with severity colors, scores, legends, gradient
+3. `stix.py` — STIX 2.1 bundles for findings + IOCs (C2 IPs, domains, hashes, threat actors)
+4. `sbom.py` — CycloneDX 1.5 SBOM for skills, MCP servers, extensions
+5. `tests/test_rules.py` — 7 tests
+6. `tests/test_navigator.py` — 9 tests
+7. `tests/test_stix.py` — 11 tests
+8. `tests/test_sbom.py` — 7 tests
+
+**Files modified (4):**
+1. `export.py` — Added export_navigator, export_stix, export_stix_ioc, export_sbom
+2. `cli.py` — Extended --format choices to 7 formats
+3. `engine.py` — Registered CustomRulesSweep
+4. `mappings.py` — Added custom_rules mapping entry
+
+**Test results:** 188 passed (150 existing + 38 new), 0.31s
+**Export verified:** SARIF, JSONL, CSV, Navigator (4 techniques), STIX (60 objects), STIX-IOC (26 objects), SBOM
+
+### Final Project Stats (Sprints 8+9+10)
+- **60 source files** (59 .py + 1 .j2)
+- **7 always-on monitors**
+- **25 periodic sweeps** (+5 since Sprint 7b)
+- **9 CLI commands**
+- **5 alert backends** (+1: webhook)
+- **7 export formats** (+7 new: SARIF, JSONL, CSV, Navigator, STIX, STIX-IOC, SBOM)
+- **1 custom rule engine** (YAML-based, no dependencies)
+- **188 tests** (+111 new across 3 sprints)
