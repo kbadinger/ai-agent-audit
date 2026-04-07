@@ -395,11 +395,71 @@ for _mod, _prefix, _conf, _mitre, _owasp, _remed in _MAPPING_TABLE:
         "remediation": _remed,
     }))
 
+# =========================================================================
+# COMPLIANCE FRAMEWORK MAPPINGS
+# =========================================================================
+# Maps OWASP ASI codes -> EU AI Act articles and NIST AI RMF subcategories.
+# Applied after primary enrichment via the OWASP ASI code on the finding.
+
+_COMPLIANCE_BY_ASI: dict[str, dict[str, str]] = {
+    # ASI01 Agent Goal Hijack — input validation, robustness
+    "ASI01": {
+        "eu_ai_act": "Art.15(1),Art.9(2)",   # Accuracy/robustness, risk management
+        "nist_rmf": "MG-2.2,MG-3.1",          # AI risk measurement, AI risk management
+    },
+    # ASI02 Tool Misuse — human oversight, output handling
+    "ASI02": {
+        "eu_ai_act": "Art.14(1),Art.15(3)",   # Human oversight, output safety
+        "nist_rmf": "GV-1.1,MP-4.1",          # Legal compliance, minimize harm
+    },
+    # ASI03 Identity & Privilege Abuse — data governance, access control
+    "ASI03": {
+        "eu_ai_act": "Art.10(2),Art.12(1)",   # Data governance, record-keeping
+        "nist_rmf": "GV-6.1,MP-5.1",          # Policies/processes, privacy
+    },
+    # ASI04 Supply Chain — transparency, third-party risk
+    "ASI04": {
+        "eu_ai_act": "Art.13(1),Art.17(1)",   # Transparency, quality management
+        "nist_rmf": "GV-6.2,MG-3.2",          # Accountability, third-party risk
+    },
+    # ASI05 Code Execution — sandbox, safety controls
+    "ASI05": {
+        "eu_ai_act": "Art.15(1),Art.9(4)",    # Robustness, risk management measures
+        "nist_rmf": "MG-2.4,MP-4.1",          # AI risk measurement, safety
+    },
+    # ASI06 Memory Poisoning — data integrity, training data
+    "ASI06": {
+        "eu_ai_act": "Art.10(3),Art.15(4)",   # Data quality, cybersecurity
+        "nist_rmf": "MG-2.2,MP-2.3",          # Risk measurement, data integrity
+    },
+    # ASI07 Inter-Agent Comms — data governance, network security
+    "ASI07": {
+        "eu_ai_act": "Art.15(4),Art.12(1)",   # Cybersecurity, logging
+        "nist_rmf": "GV-6.1,MG-4.1",          # Policies, monitoring
+    },
+    # ASI08 Cascading Failures — reliability, risk management
+    "ASI08": {
+        "eu_ai_act": "Art.15(1),Art.9(7)",    # Robustness, residual risk
+        "nist_rmf": "MG-2.6,MG-4.1",          # System reliability, monitoring
+    },
+    # ASI09 Human-Agent Trust — human oversight, transparency
+    "ASI09": {
+        "eu_ai_act": "Art.14(1),Art.13(1)",   # Human oversight, transparency
+        "nist_rmf": "GV-1.6,MP-5.1",          # Trustworthy AI, stakeholder engagement
+    },
+    # ASI10 Rogue Agents — monitoring, incident response
+    "ASI10": {
+        "eu_ai_act": "Art.15(4),Art.12(1)",   # Cybersecurity, logging
+        "nist_rmf": "MG-4.1,MG-2.6",          # Monitoring, system behavior
+    },
+}
+
 
 def enrich(finding: Finding) -> Finding:
-    """Enrich a finding with MITRE ATT&CK, OWASP ASI, confidence, and remediation.
+    """Enrich a finding with MITRE ATT&CK, OWASP ASI, compliance tags, and remediation.
 
     Looks up the first matching (module, title_prefix) in the mapping table.
+    Then applies compliance framework tags based on the OWASP ASI code.
     Modifies the finding in-place and returns it.
     """
     for mod, prefix, meta in _INDEX:
@@ -411,5 +471,14 @@ def enrich(finding: Finding) -> Finding:
                 finding.owasp_asi = meta["owasp_asi"]
             if meta["remediation"]:
                 finding.remediation = meta["remediation"]
-            return finding
+            break
+
+    # Apply compliance framework tags from OWASP ASI code
+    if finding.owasp_asi and finding.owasp_asi in _COMPLIANCE_BY_ASI:
+        compliance = _COMPLIANCE_BY_ASI[finding.owasp_asi]
+        if not finding.eu_ai_act:
+            finding.eu_ai_act = compliance.get("eu_ai_act")
+        if not finding.nist_rmf:
+            finding.nist_rmf = compliance.get("nist_rmf")
+
     return finding

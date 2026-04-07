@@ -20,6 +20,7 @@ _SEVERITY_LABELS = {0: "INFO", 1: "WARNING", 2: "CRITICAL"}
 _CSV_COLUMNS = [
     "id", "module", "severity", "title", "detail", "path",
     "confidence", "mitre_attack", "owasp_asi", "remediation",
+    "eu_ai_act", "nist_rmf",
     "triage_status", "first_seen", "last_seen", "times_seen",
 ]
 
@@ -52,6 +53,8 @@ def export_jsonl(db: FindingsDB, output: TextIO | None = None) -> str:
             "owasp_asi": f.get("owasp_asi"),
             "remediation": f.get("remediation"),
             "triage_status": f.get("triage_status"),
+            "eu_ai_act": f.get("eu_ai_act"),
+            "nist_rmf": f.get("nist_rmf"),
             "first_seen": f.get("first_seen"),
             "last_seen": f.get("last_seen"),
             "times_seen": f.get("times_seen", 1),

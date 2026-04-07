@@ -91,6 +91,16 @@ def findings_to_stix(findings: list[dict]) -> dict[str, Any]:
                 "source_name": "owasp-agentic-top-10",
                 "external_id": f["owasp_asi"],
             })
+        if f.get("eu_ai_act"):
+            ext_refs.append({
+                "source_name": "eu-ai-act",
+                "external_id": f["eu_ai_act"],
+            })
+        if f.get("nist_rmf"):
+            ext_refs.append({
+                "source_name": "nist-ai-rmf",
+                "external_id": f["nist_rmf"],
+            })
         if ext_refs:
             indicator["external_references"] = ext_refs
 

@@ -47,6 +47,10 @@ def findings_to_sarif(findings: list[dict], tool_version: str = "0.1.0") -> dict
                 tags.append(f"mitre:{f['mitre_attack']}")
             if f.get("owasp_asi"):
                 tags.append(f"owasp:{f['owasp_asi']}")
+            if f.get("eu_ai_act"):
+                tags.append(f"eu-ai-act:{f['eu_ai_act']}")
+            if f.get("nist_rmf"):
+                tags.append(f"nist-rmf:{f['nist_rmf']}")
             if tags:
                 rule["properties"] = {"tags": tags}
             rules[rule_id] = rule

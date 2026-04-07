@@ -30,6 +30,8 @@ class Finding:
     mitre_attack: Optional[str] = None   # e.g. "T1059.004"
     owasp_asi: Optional[str] = None      # e.g. "ASI01"
     remediation: Optional[str] = None
+    eu_ai_act: Optional[str] = None      # e.g. "Art.9(1)" — EU AI Act article
+    nist_rmf: Optional[str] = None       # e.g. "GV-1.1" — NIST AI RMF subcategory
 
     @property
     def dedup_hash(self) -> str:

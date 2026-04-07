@@ -44,6 +44,8 @@ _MIGRATION_COLUMNS = [
     ("mitre_attack", "TEXT"),
     ("owasp_asi", "TEXT"),
     ("remediation", "TEXT"),
+    ("eu_ai_act", "TEXT"),
+    ("nist_rmf", "TEXT"),
 ]
 
 
@@ -83,16 +85,20 @@ class FindingsDB:
                     "UPDATE findings SET last_seen = ?, times_seen = ?, detail = ?, confidence = ?,"
                     " mitre_attack = COALESCE(?, mitre_attack),"
                     " owasp_asi = COALESCE(?, owasp_asi),"
-                    " remediation = COALESCE(?, remediation)"
+                    " remediation = COALESCE(?, remediation),"
+                    " eu_ai_act = COALESCE(?, eu_ai_act),"
+                    " nist_rmf = COALESCE(?, nist_rmf)"
                     " WHERE id = ?",
                     (finding.timestamp, row["times_seen"] + 1, finding.detail, finding.confidence,
-                     finding.mitre_attack, finding.owasp_asi, finding.remediation, row["id"]),
+                     finding.mitre_attack, finding.owasp_asi, finding.remediation,
+                     finding.eu_ai_act, finding.nist_rmf, row["id"]),
                 )
             else:
                 self._conn.execute(
                     "INSERT INTO findings (dedup_hash, module, severity, title, detail, path,"
-                    " first_seen, last_seen, confidence, mitre_attack, owasp_asi, remediation)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " first_seen, last_seen, confidence, mitre_attack, owasp_asi, remediation,"
+                    " eu_ai_act, nist_rmf)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         finding.dedup_hash,
                         finding.module,
@@ -106,6 +112,8 @@ class FindingsDB:
                         finding.mitre_attack,
                         finding.owasp_asi,
                         finding.remediation,
+                        finding.eu_ai_act,
+                        finding.nist_rmf,
                     ),
                 )
             self._conn.commit()
