@@ -44,10 +44,15 @@ class Alerter:
             return {"enabled": False, "cooldown_seconds": 300, "backends": []}
 
     def alert(self, finding: Finding) -> None:
-        """Send alerts for a critical finding."""
+        """Send alerts for a critical finding with sufficient confidence."""
         if not self._config.get("enabled", False):
             return
         if finding.severity != Severity.CRITICAL:
+            return
+
+        # Confidence gate — suppress low-confidence alerts
+        min_confidence = self._config.get("min_alert_confidence", 0.5)
+        if finding.confidence < min_confidence:
             return
 
         # Cooldown deduplication
@@ -68,6 +73,7 @@ class Alerter:
                     "slack": self._send_slack,
                     "macos": self._send_macos_notification,
                     "file": self._send_file,
+                    "webhook": self._send_webhook,
                 }.get(backend_type)
                 if handler:
                     handler(finding, backend)
@@ -76,6 +82,21 @@ class Alerter:
             except Exception:
                 logger.warning("Alert backend '%s' failed", backend_type, exc_info=True)
 
+    @staticmethod
+    def _format_message(finding: Finding) -> str:
+        """Build alert message with confidence and framework mappings."""
+        parts = [f"[OpenClaw CRITICAL] {finding.title}"]
+        tags = []
+        if finding.mitre_attack:
+            tags.append(finding.mitre_attack)
+        if finding.owasp_asi:
+            tags.append(finding.owasp_asi)
+        if tags:
+            parts.append(f"[{', '.join(tags)}]")
+        parts.append(f"[confidence: {finding.confidence:.2f}]")
+        parts.append(finding.detail)
+        return "\n".join(parts)
+
     def _send_telegram(self, finding: Finding, config: dict) -> None:
         token = config.get("token", "")
         chat_id = config.get("chat_id", "")
@@ -83,7 +104,7 @@ class Alerter:
             logger.warning("Telegram config missing token or chat_id")
             return
 
-        text = f"[OpenClaw CRITICAL] {finding.title}\n{finding.detail}"
+        text = self._format_message(finding)
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = json.dumps({"chat_id": chat_id, "text": text}).encode()
         req = urllib.request.Request(
@@ -99,7 +120,7 @@ class Alerter:
             logger.warning("Slack config missing webhook_url")
             return
 
-        text = f":rotating_light: *[OpenClaw CRITICAL]* {finding.title}\n{finding.detail}"
+        text = f":rotating_light: *{self._format_message(finding)}*"
         payload = json.dumps({"text": text}).encode()
         req = urllib.request.Request(
             webhook_url,
@@ -126,6 +147,37 @@ class Alerter:
             )
         except Exception:
             pass  # macOS notifications are best-effort
+
+    def _send_webhook(self, finding: Finding, config: dict) -> None:
+        """POST JSON to a generic webhook URL."""
+        url = config.get("url", "")
+        if not url:
+            logger.warning("Webhook config missing url")
+            return
+
+        payload = {
+            "source": "openclaw-audit",
+            "severity": "CRITICAL",
+            "title": finding.title,
+            "detail": finding.detail,
+            "module": finding.module,
+            "confidence": finding.confidence,
+            "path": finding.path,
+            "mitre_attack": finding.mitre_attack,
+            "owasp_asi": finding.owasp_asi,
+            "remediation": finding.remediation,
+            "timestamp": finding.timestamp,
+        }
+
+        headers = {"Content-Type": "application/json"}
+        # Allow custom headers (e.g., auth tokens)
+        custom_headers = config.get("headers", {})
+        if isinstance(custom_headers, dict):
+            headers.update(custom_headers)
+
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=data, headers=headers)
+        urllib.request.urlopen(req, timeout=10)
 
     def _send_file(self, finding: Finding, config: dict) -> None:
         path = config.get("path", "")

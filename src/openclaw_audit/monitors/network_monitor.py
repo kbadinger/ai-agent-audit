@@ -9,7 +9,7 @@ import threading
 import psutil
 
 from ..config import MONITOR_POLL_INTERVAL_SECONDS
-from ..ioc import C2_IPS, C2_PORTS
+from ..ioc import C2_IPS, C2_PORTS, record_ioc_match
 from ..models import Finding, Severity
 from .base import BaseMonitor
 
@@ -136,6 +136,7 @@ class NetworkMonitor(BaseMonitor):
 
             # Check against known C2 IPs
             if remote_ip in C2_IPS:
+                record_ioc_match(remote_ip)
                 self.report_finding(Finding(
                     module=self.name,
                     severity=Severity.CRITICAL,
@@ -145,6 +146,7 @@ class NetworkMonitor(BaseMonitor):
 
             # Check against known C2 ports
             if remote_port in C2_PORTS:
+                record_ioc_match(str(remote_port))
                 self.report_finding(Finding(
                     module=self.name,
                     severity=Severity.WARNING,

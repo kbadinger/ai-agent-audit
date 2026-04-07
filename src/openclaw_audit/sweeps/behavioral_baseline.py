@@ -1,9 +1,10 @@
-"""Behavioral baseline & anomaly detection sweep."""
+"""Behavioral baseline & anomaly detection sweep with rolling window."""
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 
 from ..config import (
@@ -25,6 +26,7 @@ except ImportError:
     HAS_PSUTIL = False
 
 BASELINE_FILE = AUDIT_BASELINES / "behavioral.json"
+WINDOW_SIZE = 7  # Rolling window: keep last 7 snapshots
 
 
 def _count_files(directory) -> int:
@@ -81,23 +83,54 @@ def _gather_current_state() -> dict:
     }
 
 
-def _load_baseline() -> dict | None:
-    """Load stored baseline from disk, or None if it doesn't exist."""
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _stddev(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    m = _mean(values)
+    variance = sum((v - m) ** 2 for v in values) / (len(values) - 1)
+    return math.sqrt(variance)
+
+
+def _load_window() -> list[dict]:
+    """Load rolling window from disk. Handles migration from old single-snapshot format."""
     try:
-        if BASELINE_FILE.exists():
-            return json.loads(BASELINE_FILE.read_text())
+        if not BASELINE_FILE.exists():
+            return []
+        data = json.loads(BASELINE_FILE.read_text())
+        # Migration: old format was a single dict, new format is a list
+        if isinstance(data, dict):
+            return [data]
+        if isinstance(data, list):
+            return data
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("Failed to read baseline: %s", exc)
-    return None
+    return []
 
 
-def _save_baseline(state: dict) -> None:
-    """Save current state as the new baseline."""
+def _save_window(window: list[dict]) -> None:
+    """Save rolling window to disk, trimmed to WINDOW_SIZE."""
+    trimmed = window[-WINDOW_SIZE:]
     try:
         BASELINE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        BASELINE_FILE.write_text(json.dumps(state, indent=2))
+        BASELINE_FILE.write_text(json.dumps(trimmed, indent=2))
     except OSError as exc:
         logger.warning("Failed to save baseline: %s", exc)
+
+
+def _is_anomaly(current: float, history: list[float]) -> bool:
+    """Return True if current value is > mean + 2*stddev of history."""
+    if len(history) < 2:
+        return False
+    m = _mean(history)
+    sd = _stddev(history)
+    # If stddev is 0 (all same values), any increase is anomalous
+    if sd == 0:
+        return current > m
+    return current > m + 2 * sd
 
 
 class BehavioralBaselineSweep(BaseSweep):
@@ -106,11 +139,11 @@ class BehavioralBaselineSweep(BaseSweep):
     def run(self) -> ModuleResult:
         findings: list[Finding] = []
         current = _gather_current_state()
-        baseline = _load_baseline()
+        window = _load_window()
 
-        if baseline is None:
+        if not window:
             # First run: establish baseline
-            _save_baseline(current)
+            _save_window([current])
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.INFO,
@@ -125,12 +158,17 @@ class BehavioralBaselineSweep(BaseSweep):
             ))
             return ModuleResult(module_name=self.name, findings=findings)
 
-        # Compare current state to baseline
         anomaly_found = False
 
-        # Process count 3x+ higher
-        bl_procs = baseline.get("process_count", 0)
-        if bl_procs > 0 and current["process_count"] >= bl_procs * 3:
+        # Extract historical values for each metric
+        hist_procs = [s.get("process_count", 0) for s in window]
+        hist_conns = [s.get("connection_count", 0) for s in window]
+        hist_ext = [s.get("extension_file_count", 0) for s in window]
+        hist_creds = [s.get("credential_file_count", 0) for s in window]
+        hist_skills = [s.get("skill_count", 0) for s in window]
+
+        # Process count anomaly (mean + 2σ)
+        if hist_procs and _is_anomaly(current["process_count"], hist_procs):
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
@@ -138,13 +176,15 @@ class BehavioralBaselineSweep(BaseSweep):
                 title="Process count spike",
                 detail=(
                     f"Current: {current['process_count']}, "
-                    f"baseline: {bl_procs} (3x+ increase)"
+                    f"rolling avg: {_mean(hist_procs):.1f} ± {_stddev(hist_procs):.1f}"
                 ),
             ))
 
-        # New listening ports
-        bl_ports = set(baseline.get("listening_ports", []))
-        new_ports = set(current["listening_ports"]) - bl_ports
+        # New listening ports (still set-based — ports are categorical, not numeric)
+        all_hist_ports: set[int] = set()
+        for s in window:
+            all_hist_ports.update(s.get("listening_ports", []))
+        new_ports = set(current["listening_ports"]) - all_hist_ports
         if new_ports:
             anomaly_found = True
             findings.append(Finding(
@@ -154,45 +194,41 @@ class BehavioralBaselineSweep(BaseSweep):
                 detail=f"Ports not in baseline: {sorted(new_ports)}",
             ))
 
-        # Extension file count changed >20%
-        bl_ext = baseline.get("extension_file_count", 0)
-        cur_ext = current["extension_file_count"]
-        if bl_ext > 0 and abs(cur_ext - bl_ext) / bl_ext > 0.20:
+        # Extension file count anomaly
+        if hist_ext and _is_anomaly(current["extension_file_count"], hist_ext):
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,
                 title="Extension file count changed significantly",
-                detail=f"Current: {cur_ext}, baseline: {bl_ext} (>20% change)",
+                detail=(
+                    f"Current: {current['extension_file_count']}, "
+                    f"rolling avg: {_mean(hist_ext):.1f} ± {_stddev(hist_ext):.1f}"
+                ),
             ))
 
-        # Credential file count changed at all
-        bl_creds = baseline.get("credential_file_count", 0)
-        cur_creds = current["credential_file_count"]
-        if cur_creds != bl_creds:
+        # Credential file count — any change is significant
+        if hist_creds and current["credential_file_count"] != hist_creds[-1]:
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.CRITICAL,
                 title="Credential file count changed",
-                detail=f"Current: {cur_creds}, baseline: {bl_creds}",
+                detail=f"Current: {current['credential_file_count']}, previous: {hist_creds[-1]}",
             ))
 
         # Skill count increased
-        bl_skills = baseline.get("skill_count", 0)
-        cur_skills = current["skill_count"]
-        if cur_skills > bl_skills:
+        if hist_skills and current["skill_count"] > hist_skills[-1]:
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.INFO,
                 title="New skills installed",
-                detail=f"Current: {cur_skills}, baseline: {bl_skills}",
+                detail=f"Current: {current['skill_count']}, previous: {hist_skills[-1]}",
             ))
 
-        # Connection count 5x+ higher
-        bl_conns = baseline.get("connection_count", 0)
-        if bl_conns > 0 and current["connection_count"] >= bl_conns * 5:
+        # Connection count anomaly
+        if hist_conns and _is_anomaly(current["connection_count"], hist_conns):
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
@@ -200,11 +236,10 @@ class BehavioralBaselineSweep(BaseSweep):
                 title="Connection count spike",
                 detail=(
                     f"Current: {current['connection_count']}, "
-                    f"baseline: {bl_conns} (5x+ increase)"
+                    f"rolling avg: {_mean(hist_conns):.1f} ± {_stddev(hist_conns):.1f}"
                 ),
             ))
 
-        # No anomalies
         if not anomaly_found:
             findings.append(Finding(
                 module=self.name,
@@ -217,7 +252,8 @@ class BehavioralBaselineSweep(BaseSweep):
                 ),
             ))
 
-        # Update baseline with current values
-        _save_baseline(current)
+        # Append current to rolling window and save
+        window.append(current)
+        _save_window(window)
 
         return ModuleResult(module_name=self.name, findings=findings)

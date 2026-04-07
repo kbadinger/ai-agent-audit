@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from ..config import INJECTION_PATTERNS, OPENCLAW_MCP_CONFIG
+from ..ioc import C2_IPS, MALICIOUS_DOMAINS, ABUSED_SERVICES, record_ioc_match
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
 
@@ -72,6 +73,61 @@ class MCPSecuritySweep(BaseSweep):
                             ),
                             path=str(OPENCLAW_MCP_CONFIG),
                         ))
+
+            # Check tool descriptions against IOC database
+            for tool in tools:
+                desc = tool.get("description", "")
+                tool_name = tool.get("name", "?")
+
+                # Check for C2 IPs in description
+                for ip in C2_IPS:
+                    if ip in desc:
+                        record_ioc_match(ip)
+                        findings.append(Finding(
+                            module=self.name,
+                            severity=Severity.CRITICAL,
+                            title=f"C2 IP in MCP tool description: {tool_name}",
+                            detail=(
+                                f"Server '{server_name}', tool '{tool_name}' "
+                                f"description contains known C2 IP {ip}."
+                            ),
+                            path=str(OPENCLAW_MCP_CONFIG),
+                        ))
+
+                # Check for malicious/abused domains
+                for domain in MALICIOUS_DOMAINS | ABUSED_SERVICES:
+                    if domain in desc:
+                        record_ioc_match(domain)
+                        findings.append(Finding(
+                            module=self.name,
+                            severity=Severity.CRITICAL,
+                            title=f"Malicious domain in MCP tool description: {tool_name}",
+                            detail=(
+                                f"Server '{server_name}', tool '{tool_name}' "
+                                f"description references known malicious/abused "
+                                f"domain: {domain}."
+                            ),
+                            path=str(OPENCLAW_MCP_CONFIG),
+                        ))
+
+            # Check server command/args for IOC domains
+            cmd_args = " ".join(
+                [server_cfg.get("command", "")]
+                + (server_cfg.get("args", []) if isinstance(server_cfg.get("args"), list) else [])
+            )
+            for domain in MALICIOUS_DOMAINS | ABUSED_SERVICES:
+                if domain in cmd_args:
+                    record_ioc_match(domain)
+                    findings.append(Finding(
+                        module=self.name,
+                        severity=Severity.CRITICAL,
+                        title=f"MCP server '{server_name}' connects to malicious domain",
+                        detail=(
+                            f"Server command/args reference known malicious/abused "
+                            f"domain: {domain}."
+                        ),
+                        path=str(OPENCLAW_MCP_CONFIG),
+                    ))
 
             # Check version pinning
             version = server_cfg.get("version", "")

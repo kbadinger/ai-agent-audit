@@ -9,8 +9,12 @@ from typing import Optional
 
 from .config import DEFAULT_SWEEP_INTERVAL_SECONDS
 from .db import FindingsDB
+from .ioc import load_ioc_matches, save_ioc_matches
+from .learner import PrecisionTracker
+from .mappings import enrich
 from .models import Finding, ModuleResult
 from .monitors.base import BaseMonitor
+from .profile import EnvironmentProfiler
 from .sweeps.base import BaseSweep
 
 logger = logging.getLogger(__name__)
@@ -18,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 class AuditEngine:
     """Central orchestrator for monitors and sweeps."""
+
+    # Minimum confidence to alert on a finding (below this, still stored but not alerted)
+    ALERT_CONFIDENCE_THRESHOLD = 0.2
 
     def __init__(
         self,
@@ -33,6 +40,9 @@ class AuditEngine:
         self._monitor_threads: list[threading.Thread] = []
         self._sweep_timer: Optional[threading.Event] = None
         self._running = False
+        self.tracker = PrecisionTracker(db=self.db)
+        self.profiler = EnvironmentProfiler()
+        load_ioc_matches()
 
     def register_monitor(self, monitor: BaseMonitor) -> None:
         self._monitors.append(monitor)
@@ -41,9 +51,11 @@ class AuditEngine:
         self._sweeps.append(sweep)
 
     def _on_finding(self, finding: Finding) -> None:
-        """Callback for monitors to report findings."""
+        """Callback for monitors to report findings. Enriches and calibrates first."""
+        enrich(finding)
+        finding.confidence = self.tracker.calibrate(finding)
         self.db.insert(finding)
-        if callable(self._on_finding_extra):
+        if callable(self._on_finding_extra) and finding.confidence >= self.ALERT_CONFIDENCE_THRESHOLD:
             try:
                 self._on_finding_extra(finding)
             except Exception:
@@ -53,12 +65,21 @@ class AuditEngine:
         """Run all registered sweeps and store results."""
         results = []
         for sweep in self._sweeps:
+            if not self.profiler.is_relevant(sweep.name):
+                logger.debug("Skipping irrelevant sweep: %s", sweep.name)
+                continue
             try:
                 result = sweep.execute()
+                for finding in result.findings:
+                    enrich(finding)
+                    finding.confidence = self.tracker.calibrate(finding)
                 self.db.insert_many(result.findings)
                 results.append(result)
             except Exception:
                 logger.exception("Sweep %s failed", sweep.name)
+        # Refresh learning systems after each sweep cycle
+        self.tracker.refresh()
+        save_ioc_matches()
         return results
 
     def start(self) -> None:
@@ -147,6 +168,11 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
     from .sweeps.credential_rotation import CredentialRotationSweep
     from .sweeps.correlation import CorrelationSweep
     from .sweeps.agent_comm_audit import AgentCommAuditSweep
+    from .sweeps.safebins_bypass import SafeBinsBypassSweep
+    from .sweeps.mcp_rugpull import MCPRugPullSweep
+    from .sweeps.unicode_injection import UnicodeInjectionSweep
+    from .sweeps.worm_propagation import WormPropagationSweep
+    from .rules import CustomRulesSweep
     from .alerting import Alerter
 
     alerter = Alerter()
@@ -167,7 +193,10 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
                 MCPSecuritySweep, DockerSecuritySweep,
                 ReverseProxyAuditSweep, NodeCVECheckSweep,
                 VSCodeTrojanCheckSweep, BehavioralBaselineSweep,
-                CredentialRotationSweep, AgentCommAuditSweep]:
+                CredentialRotationSweep, AgentCommAuditSweep,
+                SafeBinsBypassSweep, MCPRugPullSweep,
+                UnicodeInjectionSweep, WormPropagationSweep,
+                CustomRulesSweep]:
         engine.register_sweep(cls())
 
     # CorrelationSweep needs access to the DB for querying recent findings

@@ -151,6 +151,77 @@ def cmd_update_ioc(args: argparse.Namespace) -> None:
         print(f"  {key}: {value}")
 
 
+def cmd_triage(args: argparse.Namespace) -> None:
+    """Triage findings — list, confirm, dismiss, or mark as false positive."""
+    from .learner import PrecisionTracker
+
+    db = FindingsDB()
+
+    if args.finding_id is None:
+        # List mode: show triageable findings
+        findings = db.get_triageable()
+        if not findings:
+            print("No active findings to triage.")
+            db.close()
+            return
+
+        severity_labels = {0: "INFO", 1: "WARN", 2: "CRIT"}
+        print(f"{'ID':>5}  {'Sev':5}  {'Conf':5}  {'Status':10}  {'Title'}")
+        print("-" * 72)
+        for f in findings:
+            sev = severity_labels.get(f["severity"], "?")
+            conf = f"{f['confidence']:.2f}" if f["confidence"] is not None else "0.50"
+            status = f["triage_status"] or "-"
+            print(f"{f['id']:>5}  {sev:5}  {conf:5}  {status:10}  {f['title']}")
+        db.close()
+        return
+
+    # Triage a specific finding
+    status = None
+    if args.confirm:
+        status = "confirmed"
+    elif args.fp:
+        status = "false_positive"
+    elif args.dismiss:
+        status = "dismissed"
+    else:
+        print("Specify --confirm, --fp, or --dismiss.", file=sys.stderr)
+        db.close()
+        sys.exit(1)
+
+    if db.triage(args.finding_id, status):
+        # Refresh precision scores
+        tracker = PrecisionTracker(db=db)
+        tracker.refresh()
+        print(f"Finding {args.finding_id} marked as '{status}'. Precision scores updated.")
+    else:
+        print(f"Finding {args.finding_id} not found.", file=sys.stderr)
+        db.close()
+        sys.exit(1)
+
+    db.close()
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """Export findings in SARIF, JSONL, or CSV format."""
+    from .export import export_findings
+
+    db = FindingsDB()
+    try:
+        content = export_findings(db, fmt=args.format, output_path=args.output)
+        if not args.output:
+            sys.stdout.write(content)
+            if content and not content.endswith("\n"):
+                sys.stdout.write("\n")
+        else:
+            print(f"Exported to: {args.output}")
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        db.close()
+
+
 def cmd_report(args: argparse.Namespace) -> None:
     """Generate an HTML report."""
     try:
@@ -176,6 +247,24 @@ def main() -> None:
     sub.add_parser("stop", help="Stop the audit daemon")
     sub.add_parser("status", help="Show daemon status and finding summary")
     sub.add_parser("sweep", help="Run all security sweeps (foreground)")
+
+    triage_parser = sub.add_parser("triage", help="Triage findings (confirm/fp/dismiss)")
+    triage_parser.add_argument("finding_id", nargs="?", type=int, default=None, help="Finding ID to triage")
+    triage_group = triage_parser.add_mutually_exclusive_group()
+    triage_group.add_argument("--confirm", action="store_true", help="Mark as confirmed true positive")
+    triage_group.add_argument("--fp", action="store_true", help="Mark as false positive")
+    triage_group.add_argument("--dismiss", action="store_true", help="Dismiss (not relevant)")
+
+    export_parser = sub.add_parser("export", help="Export findings (SARIF, JSONL, CSV)")
+    export_parser.add_argument(
+        "--format", "-f",
+        choices=["sarif", "jsonl", "csv", "navigator", "stix", "stix-ioc", "sbom"],
+        default="jsonl",
+        help="Output format (default: jsonl)",
+    )
+    export_parser.add_argument(
+        "--output", "-o", help="Output file path (default: stdout)",
+    )
 
     report_parser = sub.add_parser("report", help="Generate an HTML report")
     report_parser.add_argument(
@@ -203,6 +292,8 @@ def main() -> None:
         "stop": cmd_stop,
         "status": cmd_status,
         "sweep": cmd_sweep,
+        "triage": cmd_triage,
+        "export": cmd_export,
         "report": cmd_report,
         "fix": cmd_fix,
         "update-ioc": cmd_update_ioc,

@@ -112,6 +112,39 @@
   .finding-meta span { margin-right: 1rem; }
   .finding-path { font-family: monospace; font-size: 0.85rem; color: var(--warning); }
 
+  /* Confidence bar */
+  .confidence-bar {
+    display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem;
+  }
+  .confidence-track {
+    width: 60px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .confidence-fill { height: 100%; border-radius: 3px; }
+  .conf-high { background: var(--good); }
+  .conf-med { background: var(--warning); }
+  .conf-low { background: var(--critical); }
+
+  /* Tags */
+  .tag {
+    display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px;
+    font-size: 0.7rem; font-weight: 600; font-family: monospace;
+    background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border);
+  }
+  .tag-mitre { color: var(--info); border-color: var(--info); }
+  .tag-owasp { color: #b388ff; border-color: #b388ff; }
+  .tag-triage { padding: 0.1rem 0.4rem; font-size: 0.7rem; border-radius: 3px; font-weight: 600; }
+  .triage-confirmed { background: var(--good); color: #1a1a1a; }
+  .triage-false_positive { background: var(--text-muted); color: #1a1a1a; }
+  .triage-dismissed { background: var(--border); color: var(--text-muted); }
+
+  /* Remediation */
+  .remediation {
+    margin-top: 0.4rem; padding: 0.5rem 0.75rem;
+    background: var(--surface2); border-radius: 4px;
+    font-size: 0.85rem; border-left: 3px solid var(--good);
+  }
+  .remediation-label { font-weight: 600; font-size: 0.75rem; color: var(--good); text-transform: uppercase; letter-spacing: 0.03em; }
+
   /* Trend chart */
   .trend-section { margin: 2rem 0; }
   .trend-chart {
@@ -221,16 +254,39 @@
         <span class="badge badge-info">Info</span>
         {% endif %}
         <strong>{{ f.title }}</strong>
+        {% if f.triage_status %}
+        <span class="tag-triage triage-{{ f.triage_status }}">{{ f.triage_status | replace('_', ' ') }}</span>
+        {% endif %}
       </div>
       <div class="finding-detail">{{ f.detail }}</div>
       {% if f.path %}
       <div class="finding-path">{{ f.path }}</div>
       {% endif %}
       <div class="finding-meta">
+        {% if f.confidence is not none %}
+        <span class="confidence-bar">
+          <span class="confidence-track">
+            <span class="confidence-fill {% if f.confidence >= 0.7 %}conf-high{% elif f.confidence >= 0.4 %}conf-med{% else %}conf-low{% endif %}" style="width: {{ (f.confidence * 100) | int }}%"></span>
+          </span>
+          {{ "%.0f" | format(f.confidence * 100) }}%
+        </span>
+        {% endif %}
+        {% if f.mitre_attack %}
+        <span class="tag tag-mitre">{{ f.mitre_attack }}</span>
+        {% endif %}
+        {% if f.owasp_asi %}
+        <span class="tag tag-owasp">{{ f.owasp_asi }}</span>
+        {% endif %}
         <span>First seen: {{ f.first_seen | timestamp_fmt }}</span>
         <span>Last seen: {{ f.last_seen | timestamp_fmt }}</span>
         <span>Seen {{ f.times_seen }}x</span>
       </div>
+      {% if f.remediation %}
+      <div class="remediation">
+        <div class="remediation-label">Fix</div>
+        {{ f.remediation }}
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>

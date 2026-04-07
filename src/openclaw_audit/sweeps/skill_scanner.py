@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from .. import ioc
+from ..ioc import record_ioc_match
 from ..config import OPENCLAW_SKILLS
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
@@ -148,6 +149,7 @@ class SkillScannerSweep(BaseSweep):
         # C2 IPs
         for ip in ioc.C2_IPS:
             if ip in content:
+                record_ioc_match(ip)
                 findings.append(Finding(
                     module=self.name,
                     severity=Severity.CRITICAL,
@@ -181,6 +183,7 @@ class SkillScannerSweep(BaseSweep):
         # Exfil domains
         for domain in ioc.EXFIL_DOMAINS:
             if domain in content:
+                record_ioc_match(domain)
                 findings.append(Finding(
                     module=self.name,
                     severity=Severity.CRITICAL,

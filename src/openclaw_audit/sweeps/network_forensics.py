@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import socket
 
-from ..ioc import C2_IPS, C2_PORTS, EXFIL_DOMAINS
+from ..ioc import C2_IPS, C2_PORTS, EXFIL_DOMAINS, record_ioc_match
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
 
@@ -122,6 +122,7 @@ class NetworkForensicsSweep(BaseSweep):
                 if conn.raddr:
                     # Check remote IP against known C2 IPs
                     if conn.raddr.ip in C2_IPS:
+                        record_ioc_match(conn.raddr.ip)
                         findings.append(Finding(
                             module=self.name,
                             severity=Severity.CRITICAL,
@@ -131,6 +132,7 @@ class NetworkForensicsSweep(BaseSweep):
 
                     # Check remote port against known C2 ports
                     if conn.raddr.port in C2_PORTS:
+                        record_ioc_match(str(conn.raddr.port))
                         findings.append(Finding(
                             module=self.name,
                             severity=Severity.CRITICAL,
@@ -142,6 +144,7 @@ class NetworkForensicsSweep(BaseSweep):
                     if remote_host:
                         for domain in EXFIL_DOMAINS:
                             if remote_host == domain or remote_host.endswith("." + domain):
+                                record_ioc_match(domain)
                                 findings.append(Finding(
                                     module=self.name,
                                     severity=Severity.CRITICAL,

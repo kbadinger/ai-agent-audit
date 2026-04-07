@@ -41,6 +41,22 @@ _FLOOD_THRESHOLD = 30          # messages per minute
 _SUSTAINED_INJECTION_COUNT = 5 # injection hits in 5 minutes
 _SUSTAINED_INJECTION_WINDOW = 300  # seconds
 
+# Social engineering patterns (ASI09) — agent outputs manipulating humans
+_SOCIAL_ENGINEERING_PATTERNS = [
+    (re.compile(r"(?i)(you must|you need to|you have to|it is essential that you|failure to)\s+(immediately|urgently|right now|without delay)"),
+     "Urgency manipulation"),
+    (re.compile(r"(?i)(as your (AI|assistant|agent|system)|I have authority|I am authorized|by (company|organization|admin) policy)"),
+     "False authority claim"),
+    (re.compile(r"(?i)(don'?t tell anyone|keep this (secret|private|between us)|do not share|confidential between)"),
+     "Secrecy pressure"),
+    (re.compile(r"(?i)(disable (security|firewall|antivirus|protection)|turn off (2fa|mfa|authentication)|remove.*password)"),
+     "Security disabling request"),
+    (re.compile(r"(?i)(paste (this|the following) into (terminal|console|shell)|run this command|execute the following).*\b(curl|wget|bash|sh|sudo)\b"),
+     "Dangerous command coaching"),
+    (re.compile(r"(?i)(I ('?m |am )feeling|I understand your (concern|worry)|trust me|I promise|believe me)"),
+     "Anthropomorphic trust exploitation"),
+]
+
 # Patterns for premise-shifting / role language
 _ROLE_PATTERNS = re.compile(
     r"(?i)(you are now|act as|your new role|from now on you|"
@@ -319,6 +335,20 @@ class SessionAnalyzer(BaseMonitor):
                     ),
                     path=path_str,
                 ))
+
+            # --- Social engineering detection (ASI09) ---
+            for se_pattern, se_name in _SOCIAL_ENGINEERING_PATTERNS:
+                if se_pattern.search(text_to_check):
+                    self.report_finding(Finding(
+                        module=self.name,
+                        severity=Severity.WARNING,
+                        title=f"Social engineering pattern: {se_name}",
+                        detail=(
+                            f"Agent output in {path.name} matches social engineering "
+                            f"pattern: {se_name}. May be manipulating human trust."
+                        ),
+                        path=path_str,
+                    ))
 
             # --- Premise shifting detection ---
             if _ROLE_PATTERNS.search(text_to_check):

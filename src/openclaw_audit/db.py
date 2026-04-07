@@ -23,12 +23,28 @@ CREATE TABLE IF NOT EXISTS findings (
     first_seen REAL NOT NULL,
     last_seen REAL NOT NULL,
     times_seen INTEGER NOT NULL DEFAULT 1,
-    resolved INTEGER NOT NULL DEFAULT 0
+    resolved INTEGER NOT NULL DEFAULT 0,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    triage_status TEXT,
+    triage_timestamp REAL,
+    mitre_attack TEXT,
+    owasp_asi TEXT,
+    remediation TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_findings_hash ON findings(dedup_hash);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
 CREATE INDEX IF NOT EXISTS idx_findings_last_seen ON findings(last_seen);
 """
+
+# Columns added in Sprint 7 — applied to existing databases via ALTER TABLE.
+_MIGRATION_COLUMNS = [
+    ("confidence", "REAL NOT NULL DEFAULT 0.5"),
+    ("triage_status", "TEXT"),
+    ("triage_timestamp", "REAL"),
+    ("mitre_attack", "TEXT"),
+    ("owasp_asi", "TEXT"),
+    ("remediation", "TEXT"),
+]
 
 
 class FindingsDB:
@@ -41,6 +57,18 @@ class FindingsDB:
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False, timeout=30)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add new columns to existing databases (idempotent)."""
+        for col_name, col_type in _MIGRATION_COLUMNS:
+            try:
+                self._conn.execute(
+                    f"ALTER TABLE findings ADD COLUMN {col_name} {col_type}"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+        self._conn.commit()
 
     def insert(self, finding: Finding) -> None:
         """Insert or update a finding (dedup by hash)."""
@@ -52,13 +80,19 @@ class FindingsDB:
 
             if row:
                 self._conn.execute(
-                    "UPDATE findings SET last_seen = ?, times_seen = ?, detail = ? WHERE id = ?",
-                    (finding.timestamp, row["times_seen"] + 1, finding.detail, row["id"]),
+                    "UPDATE findings SET last_seen = ?, times_seen = ?, detail = ?, confidence = ?,"
+                    " mitre_attack = COALESCE(?, mitre_attack),"
+                    " owasp_asi = COALESCE(?, owasp_asi),"
+                    " remediation = COALESCE(?, remediation)"
+                    " WHERE id = ?",
+                    (finding.timestamp, row["times_seen"] + 1, finding.detail, finding.confidence,
+                     finding.mitre_attack, finding.owasp_asi, finding.remediation, row["id"]),
                 )
             else:
                 self._conn.execute(
-                    "INSERT INTO findings (dedup_hash, module, severity, title, detail, path, first_seen, last_seen)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO findings (dedup_hash, module, severity, title, detail, path,"
+                    " first_seen, last_seen, confidence, mitre_attack, owasp_asi, remediation)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         finding.dedup_hash,
                         finding.module,
@@ -68,6 +102,10 @@ class FindingsDB:
                         finding.path,
                         finding.timestamp,
                         finding.timestamp,
+                        finding.confidence,
+                        finding.mitre_attack,
+                        finding.owasp_asi,
+                        finding.remediation,
                     ),
                 )
             self._conn.commit()
@@ -118,6 +156,46 @@ class FindingsDB:
                         "UPDATE findings SET resolved = 1 WHERE id = ?", (row["id"],)
                     )
             self._conn.commit()
+
+    def triage(self, finding_id: int, status: str) -> bool:
+        """Set triage status on a finding. Returns True if finding was found."""
+        if status not in ("confirmed", "false_positive", "dismissed"):
+            raise ValueError(f"Invalid triage status: {status}")
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE findings SET triage_status = ?, triage_timestamp = ? WHERE id = ?",
+                (status, time.time(), finding_id),
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def get_precision_stats(self) -> dict[str, dict]:
+        """Get confirmed/false_positive counts per (module, title) for calibration."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT module, title, triage_status, COUNT(*) as cnt "
+                "FROM findings WHERE triage_status IN ('confirmed', 'false_positive') "
+                "GROUP BY module, title, triage_status"
+            ).fetchall()
+
+        stats: dict[str, dict] = {}
+        for row in rows:
+            key = f"{row['module']}:{row['title']}"
+            if key not in stats:
+                stats[key] = {"confirmed": 0, "false_positive": 0}
+            stats[key][row["triage_status"]] = row["cnt"]
+        return stats
+
+    def get_triageable(self) -> list[dict]:
+        """Get active findings that haven't been triaged, for the triage UI."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, module, severity, title, detail, path, confidence, "
+                "first_seen, last_seen, times_seen, triage_status "
+                "FROM findings WHERE resolved = 0 "
+                "ORDER BY severity DESC, confidence DESC, last_seen DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def close(self) -> None:
         self._conn.close()

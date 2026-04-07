@@ -60,6 +60,8 @@ class CorrelationSweep(BaseSweep):
         self._check_data_exfiltration(by_module, findings, now)
         self._check_coordinated_attack(recent, findings, now)
         self._check_escalating_threat(db, findings, now)
+        self._check_cascading_failure(recent, by_module, findings, now)
+        self._check_resource_exhaustion_chain(by_module, findings, now)
 
     # --- Pattern: Active Breach ---
     def _check_active_breach(
@@ -235,6 +237,97 @@ class CorrelationSweep(BaseSweep):
                 title="Escalating threat level",
                 detail=f"Finding count increasing: {count_last} in last hour vs "
                        f"{count_prev} in previous hour (>{50}% increase).",
+            ))
+
+
+    # --- Pattern: Cascading Failure (ASI08) ---
+    def _check_cascading_failure(
+        self,
+        recent: list[dict],
+        by_module: defaultdict[str, list[dict]],
+        findings: list[Finding],
+        now: float,
+    ) -> None:
+        """Detect cascading failure patterns across agents and modules."""
+        # Check for multiple agent failures within 30 minutes
+        agent_findings = [
+            f for f in by_module.get("agent_comm_audit", [])
+            if f["last_seen"] >= now - _30_MIN
+        ]
+        crash_findings = [
+            f for f in by_module.get("log_forensics", [])
+            if "crash" in f["title"].lower() and f["last_seen"] >= now - _30_MIN
+        ]
+        baseline_anomalies = [
+            f for f in by_module.get("behavioral_baseline", [])
+            if f["severity"] >= int(Severity.WARNING) and f["last_seen"] >= now - _30_MIN
+        ]
+
+        # Cascade indicator: errors propagating across multiple systems
+        failing_modules = set()
+        for f in recent:
+            if (f["severity"] >= int(Severity.WARNING)
+                    and f["last_seen"] >= now - _30_MIN):
+                failing_modules.add(f["module"])
+
+        if len(failing_modules) >= 4 and (crash_findings or baseline_anomalies):
+            findings.append(Finding(
+                module="correlation",
+                severity=Severity.CRITICAL,
+                title="Cascading failure detected",
+                detail=(
+                    f"Warnings/errors across {len(failing_modules)} modules in 30 minutes "
+                    f"with {'crash' if crash_findings else 'behavioral anomaly'} indicators. "
+                    f"Affected modules: {', '.join(sorted(failing_modules))}. "
+                    f"May indicate a cascading failure or system-wide compromise."
+                ),
+            ))
+
+        # Agent cascade: agent comm issues + other failures
+        if agent_findings and len(failing_modules) >= 3:
+            findings.append(Finding(
+                module="correlation",
+                severity=Severity.WARNING,
+                title="Agent cascade risk: inter-agent issues with system failures",
+                detail=(
+                    f"Agent communication issues ({len(agent_findings)} findings) "
+                    f"alongside failures in {len(failing_modules)} modules. "
+                    f"Errors may be propagating between agents."
+                ),
+            ))
+
+    # --- Pattern: Resource Exhaustion Chain (ASI08) ---
+    def _check_resource_exhaustion_chain(
+        self,
+        by_module: defaultdict[str, list[dict]],
+        findings: list[Finding],
+        now: float,
+    ) -> None:
+        """Detect resource exhaustion leading to cascading issues."""
+        process_spikes = [
+            f for f in by_module.get("behavioral_baseline", [])
+            if "process" in f["title"].lower() and f["last_seen"] >= now - _1_HOUR
+        ]
+        connection_spikes = [
+            f for f in by_module.get("behavioral_baseline", [])
+            if "connection" in f["title"].lower() and f["last_seen"] >= now - _1_HOUR
+        ]
+        crash_findings = [
+            f for f in by_module.get("log_forensics", [])
+            if "crash" in f["title"].lower() and f["last_seen"] >= now - _1_HOUR
+        ]
+
+        if (process_spikes or connection_spikes) and crash_findings:
+            findings.append(Finding(
+                module="correlation",
+                severity=Severity.WARNING,
+                title="Resource exhaustion chain detected",
+                detail=(
+                    f"Resource spikes (processes: {len(process_spikes)}, "
+                    f"connections: {len(connection_spikes)}) followed by "
+                    f"crashes ({len(crash_findings)}). May indicate DoS or "
+                    f"runaway agent consuming resources."
+                ),
             ))
 
 

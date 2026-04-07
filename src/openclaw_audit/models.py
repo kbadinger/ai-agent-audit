@@ -25,6 +25,11 @@ class Finding:
     detail: str
     path: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
+    confidence: float = 0.5
+    triage_status: Optional[str] = None  # "confirmed", "false_positive", "dismissed"
+    mitre_attack: Optional[str] = None   # e.g. "T1059.004"
+    owasp_asi: Optional[str] = None      # e.g. "ASI01"
+    remediation: Optional[str] = None
 
     @property
     def dedup_hash(self) -> str:

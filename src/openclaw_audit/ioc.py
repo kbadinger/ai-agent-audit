@@ -9,6 +9,74 @@ Sources:
 
 from __future__ import annotations
 
+import json
+import logging
+import time
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# --- IOC match tracking for aging ---
+
+_IOC_MATCHES_FILE: Path | None = None  # Set lazily to avoid circular import
+_ioc_matches: dict[str, float] = {}  # ioc_value -> last_matched_timestamp
+
+IOC_STALE_DAYS = 90
+IOC_VERY_STALE_DAYS = 180
+
+
+def _get_matches_file() -> Path:
+    global _IOC_MATCHES_FILE
+    if _IOC_MATCHES_FILE is None:
+        from .config import AUDIT_BASELINES
+        _IOC_MATCHES_FILE = AUDIT_BASELINES / "ioc-matches.json"
+    return _IOC_MATCHES_FILE
+
+
+def load_ioc_matches() -> None:
+    """Load IOC match timestamps from disk."""
+    global _ioc_matches
+    path = _get_matches_file()
+    try:
+        if path.exists():
+            _ioc_matches = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to load IOC match data: %s", exc)
+
+
+def save_ioc_matches() -> None:
+    """Persist IOC match timestamps to disk."""
+    path = _get_matches_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_ioc_matches, indent=2))
+    except OSError as exc:
+        logger.warning("Failed to save IOC match data: %s", exc)
+
+
+def record_ioc_match(ioc_value: str) -> None:
+    """Record that an IOC matched right now."""
+    _ioc_matches[ioc_value] = time.time()
+
+
+def ioc_confidence(ioc_value: str) -> float:
+    """Return confidence for an IOC based on how recently it last matched.
+
+    - Never matched / recently matched: 1.0 (full confidence)
+    - 90+ days since last match: 0.3 (stale)
+    - 180+ days since last match: 0.1 (very stale)
+    """
+    last = _ioc_matches.get(ioc_value)
+    if last is None:
+        return 1.0  # Never matched = no reason to doubt it
+    age_days = (time.time() - last) / 86400
+    if age_days >= IOC_VERY_STALE_DAYS:
+        return 0.1
+    if age_days >= IOC_STALE_DAYS:
+        return 0.3
+    return 1.0
+
+
 # --- Known C2 IP addresses ---
 
 C2_IPS: set[str] = {
