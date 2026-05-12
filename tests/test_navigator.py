@@ -2,7 +2,7 @@
 
 import json
 
-from openclaw_audit.navigator import findings_to_navigator, navigator_to_json
+from ai_agent_audit.navigator import findings_to_navigator, navigator_to_json
 
 
 def _make_finding(**overrides):
@@ -25,7 +25,7 @@ def _make_finding(**overrides):
 class TestNavigatorExport:
     def test_layer_structure(self):
         layer = findings_to_navigator([])
-        assert layer["name"] == "openclaw-audit"
+        assert layer["name"] == "ai-agent-audit"
         assert layer["domain"] == "enterprise-attack"
         assert "techniques" in layer
         assert "gradient" in layer
@@ -81,7 +81,7 @@ class TestNavigatorExport:
         layer = findings_to_navigator([_make_finding()])
         text = navigator_to_json(layer)
         parsed = json.loads(text)
-        assert parsed["name"] == "openclaw-audit"
+        assert parsed["name"] == "ai-agent-audit"
 
     def test_custom_layer_name(self):
         layer = findings_to_navigator([], layer_name="my-scan", description="My scan results")

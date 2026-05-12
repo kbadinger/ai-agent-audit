@@ -3,7 +3,7 @@
 import re
 
 # Import the patterns directly to test them
-from openclaw_audit.monitors.session_analyzer import _SOCIAL_ENGINEERING_PATTERNS
+from ai_agent_audit.monitors.session_analyzer import _SOCIAL_ENGINEERING_PATTERNS
 
 
 def _matches(text):

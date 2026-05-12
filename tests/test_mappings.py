@@ -1,8 +1,8 @@
 """Tests for Sprint 7b: Finding enrichment mappings and IOC aging integration."""
 
-from openclaw_audit.mappings import enrich
-from openclaw_audit.models import Finding, Severity
-from openclaw_audit import ioc
+from ai_agent_audit.mappings import enrich
+from ai_agent_audit.models import Finding, Severity
+from ai_agent_audit import ioc
 
 
 # --- enrich() tests ---

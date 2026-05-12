@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from openclaw_audit.sweeps.unicode_injection import UnicodeInjectionSweep
+from ai_agent_audit.sweeps.unicode_injection import UnicodeInjectionSweep
 
 
 def _run_with_file(filename, content):
@@ -14,10 +14,10 @@ def _run_with_file(filename, content):
     file_path.write_text(content)
 
     sweep = UnicodeInjectionSweep()
-    with patch("openclaw_audit.sweeps.unicode_injection.OPENCLAW_HOME", tmp), \
-         patch("openclaw_audit.sweeps.unicode_injection.OPENCLAW_WORKSPACE", tmp / "workspace"), \
-         patch("openclaw_audit.sweeps.unicode_injection.OPENCLAW_SKILLS", tmp / "skills"), \
-         patch("openclaw_audit.sweeps.unicode_injection.OPENCLAW_MCP_CONFIG", tmp / "mcp.json"):
+    with patch("ai_agent_audit.sweeps.unicode_injection.OPENCLAW_HOME", tmp), \
+         patch("ai_agent_audit.sweeps.unicode_injection.OPENCLAW_WORKSPACE", tmp / "workspace"), \
+         patch("ai_agent_audit.sweeps.unicode_injection.OPENCLAW_SKILLS", tmp / "skills"), \
+         patch("ai_agent_audit.sweeps.unicode_injection.OPENCLAW_MCP_CONFIG", tmp / "mcp.json"):
         result = sweep.run()
     return result.findings
 

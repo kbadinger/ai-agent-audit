@@ -4,8 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from openclaw_audit.models import Finding, Severity
-from openclaw_audit.monitors.session_analyzer import (
+from ai_agent_audit.models import Finding, Severity
+from ai_agent_audit.monitors.session_analyzer import (
     SessionAnalyzer,
     _check_base64,
     _check_hex,

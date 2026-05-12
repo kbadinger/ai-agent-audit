@@ -6,9 +6,9 @@ import json
 import tempfile
 from pathlib import Path
 
-from openclaw_audit.db import FindingsDB
-from openclaw_audit.models import Finding, Severity
-from openclaw_audit.export import export_sarif, export_jsonl, export_csv, export_findings
+from ai_agent_audit.db import FindingsDB
+from ai_agent_audit.models import Finding, Severity
+from ai_agent_audit.export import export_sarif, export_jsonl, export_csv, export_findings
 
 
 def _make_db_with_findings():

@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "name": "ai-agent-audit",
+  "description": "Security audit daemon for AI agent installations (OpenClaw, Hermes, ...)",
+  "createdAt": "2026-03-27T04:02:33.328Z",
+  "initializedBy": "SubFrame",
+  "settings": {
+    "autoUpdateStructure": true,
+    "autoUpdateNotes": false,
+    "taskRecognition": true
+  },
+  "backlink": {
+    "customMessage": "",
+    "additionalRefs": []
+  },
+  "files": {
+    "agents": "AGENTS.md",
+    "claude": "CLAUDE.md",
+    "gemini": "GEMINI.md",
+    "structure": ".subframe/STRUCTURE.json",
+    "notes": ".subframe/PROJECT_NOTES.md",
+    "tasks": ".subframe/tasks.json",
+    "quickstart": ".subframe/QUICKSTART.md",
+    "docsInternal": ".subframe/docs-internal"
+  }
+}

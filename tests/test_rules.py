@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from openclaw_audit.rules import _parse_yaml, load_rules, CustomRulesSweep
+from ai_agent_audit.rules import _parse_yaml, load_rules, CustomRulesSweep
 
 
 class TestParseYaml:
@@ -38,7 +38,7 @@ class TestParseYaml:
 class TestCustomRulesSweep:
     def test_no_rules_dir(self):
         sweep = CustomRulesSweep()
-        with patch("openclaw_audit.rules.RULES_DIR", Path("/nonexistent")):
+        with patch("ai_agent_audit.rules.RULES_DIR", Path("/nonexistent")):
             result = sweep.run()
         assert len(result.findings) == 0
 
@@ -64,8 +64,8 @@ class TestCustomRulesSweep:
         (target_dir / "config.txt").write_text("api_key = sk-ant-abc123def456")
 
         sweep = CustomRulesSweep()
-        with patch("openclaw_audit.rules.RULES_DIR", rules_dir), \
-             patch("openclaw_audit.rules.OPENCLAW_HOME", target_dir):
+        with patch("ai_agent_audit.rules.RULES_DIR", rules_dir), \
+             patch("ai_agent_audit.rules.OPENCLAW_HOME", target_dir):
             result = sweep.run()
 
         assert len(result.findings) >= 1
@@ -91,8 +91,8 @@ class TestCustomRulesSweep:
         (target_dir / "clean.txt").write_text("This file is clean.")
 
         sweep = CustomRulesSweep()
-        with patch("openclaw_audit.rules.RULES_DIR", rules_dir), \
-             patch("openclaw_audit.rules.OPENCLAW_HOME", target_dir):
+        with patch("ai_agent_audit.rules.RULES_DIR", rules_dir), \
+             patch("ai_agent_audit.rules.OPENCLAW_HOME", target_dir):
             result = sweep.run()
 
         # Should have no findings (rule didn't match)
@@ -115,8 +115,8 @@ class TestCustomRulesSweep:
         config_path.write_text('{"gateway": {"bind": "0.0.0.0"}}')
 
         sweep = CustomRulesSweep()
-        with patch("openclaw_audit.rules.RULES_DIR", rules_dir), \
-             patch("openclaw_audit.rules.OPENCLAW_CONFIG", config_path):
+        with patch("ai_agent_audit.rules.RULES_DIR", rules_dir), \
+             patch("ai_agent_audit.rules.OPENCLAW_CONFIG", config_path):
             result = sweep.run()
 
         assert len(result.findings) >= 1
@@ -135,8 +135,8 @@ class TestCustomRulesSweep:
         )
 
         sweep = CustomRulesSweep()
-        with patch("openclaw_audit.rules.RULES_DIR", rules_dir), \
-             patch("openclaw_audit.rules.OPENCLAW_HOME", tmp):
+        with patch("ai_agent_audit.rules.RULES_DIR", rules_dir), \
+             patch("ai_agent_audit.rules.OPENCLAW_HOME", tmp):
             result = sweep.run()
 
         assert any("Invalid regex" in f.title for f in result.findings)
@@ -151,7 +151,7 @@ class TestCustomRulesSweep:
         )
 
         rules = []
-        with patch("openclaw_audit.rules.RULES_DIR", rules_dir):
+        with patch("ai_agent_audit.rules.RULES_DIR", rules_dir):
             rules = load_rules()
 
         assert len(rules) == 0

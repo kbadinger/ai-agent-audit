@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from openclaw_audit.sweeps.mcp_rugpull import MCPRugPullSweep, _hash_tool
+from ai_agent_audit.sweeps.mcp_rugpull import MCPRugPullSweep, _hash_tool
 
 
 def _make_mcp_config(servers):
@@ -26,8 +26,8 @@ def _run_with_config_and_baseline(config_data, baseline=None):
         baseline_path.write_text(json.dumps(baseline))
 
     sweep = MCPRugPullSweep()
-    with patch("openclaw_audit.sweeps.mcp_rugpull.OPENCLAW_MCP_CONFIG", config_path), \
-         patch("openclaw_audit.sweeps.mcp_rugpull._BASELINE_FILE", baseline_path):
+    with patch("ai_agent_audit.sweeps.mcp_rugpull.OPENCLAW_MCP_CONFIG", config_path), \
+         patch("ai_agent_audit.sweeps.mcp_rugpull._BASELINE_FILE", baseline_path):
         result = sweep.run()
     return result.findings, baseline_path
 
@@ -51,7 +51,7 @@ class TestHashTool:
 class TestMCPRugPull:
     def test_no_config_file(self):
         sweep = MCPRugPullSweep()
-        with patch("openclaw_audit.sweeps.mcp_rugpull.OPENCLAW_MCP_CONFIG",
+        with patch("ai_agent_audit.sweeps.mcp_rugpull.OPENCLAW_MCP_CONFIG",
                     Path("/nonexistent/mcp.json")):
             result = sweep.run()
         assert len(result.findings) == 1

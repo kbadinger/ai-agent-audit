@@ -1,6 +1,6 @@
 """Tests for security_score grading and scoring logic."""
 
-from openclaw_audit.sweeps.security_score import _grade, _get_nested
+from ai_agent_audit.sweeps.security_score import _grade, _get_nested
 
 
 def test_grade_a():
@@ -51,7 +51,7 @@ def test_get_nested_non_dict():
 
 def test_sweep_runs_without_openclaw():
     """SecurityScoreSweep should run without crashing even if ~/.openclaw doesn't exist."""
-    from openclaw_audit.sweeps.security_score import SecurityScoreSweep
+    from ai_agent_audit.sweeps.security_score import SecurityScoreSweep
     sweep = SecurityScoreSweep()
     result = sweep.run()
     assert result.module_name == "security_score"
@@ -66,7 +66,7 @@ def test_sweep_runs_without_openclaw():
 
 def test_sweep_score_range():
     """Score should be between 0 and 135."""
-    from openclaw_audit.sweeps.security_score import SecurityScoreSweep
+    from ai_agent_audit.sweeps.security_score import SecurityScoreSweep
     sweep = SecurityScoreSweep()
     result = sweep.run()
     finding = result.findings[0]
@@ -81,7 +81,7 @@ def test_sweep_score_range():
 
 def test_sweep_detail_has_all_checks():
     """Detail should list all 17 checks."""
-    from openclaw_audit.sweeps.security_score import SecurityScoreSweep
+    from ai_agent_audit.sweeps.security_score import SecurityScoreSweep
     sweep = SecurityScoreSweep()
     result = sweep.run()
     detail = result.findings[0].detail

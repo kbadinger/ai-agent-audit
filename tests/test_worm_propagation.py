@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from openclaw_audit.sweeps.worm_propagation import WormPropagationSweep
+from ai_agent_audit.sweeps.worm_propagation import WormPropagationSweep
 
 
 def _setup_env(config=None, skills=None):
@@ -29,10 +29,10 @@ def _setup_env(config=None, skills=None):
 
 def _run(tmp, config_path, skills_path):
     sweep = WormPropagationSweep()
-    with patch("openclaw_audit.sweeps.worm_propagation.OPENCLAW_CONFIG", config_path), \
-         patch("openclaw_audit.sweeps.worm_propagation.OPENCLAW_HOME", tmp), \
-         patch("openclaw_audit.sweeps.worm_propagation.OPENCLAW_SKILLS", skills_path), \
-         patch("openclaw_audit.sweeps.worm_propagation.OPENCLAW_WORKSPACE", tmp / "workspace"):
+    with patch("ai_agent_audit.sweeps.worm_propagation.OPENCLAW_CONFIG", config_path), \
+         patch("ai_agent_audit.sweeps.worm_propagation.OPENCLAW_HOME", tmp), \
+         patch("ai_agent_audit.sweeps.worm_propagation.OPENCLAW_SKILLS", skills_path), \
+         patch("ai_agent_audit.sweeps.worm_propagation.OPENCLAW_WORKSPACE", tmp / "workspace"):
         result = sweep.run()
     return result.findings
 

@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from openclaw_audit.sweeps.safebins_bypass import SafeBinsBypassSweep
+from ai_agent_audit.sweeps.safebins_bypass import SafeBinsBypassSweep
 
 
 def _run_with_config(config_data):
@@ -15,7 +15,7 @@ def _run_with_config(config_data):
     config_path.write_text(json.dumps(config_data))
 
     sweep = SafeBinsBypassSweep()
-    with patch("openclaw_audit.sweeps.safebins_bypass.OPENCLAW_CONFIG", config_path):
+    with patch("ai_agent_audit.sweeps.safebins_bypass.OPENCLAW_CONFIG", config_path):
         result = sweep.run()
     return result.findings
 
@@ -23,7 +23,7 @@ def _run_with_config(config_data):
 class TestSafeBinsBypass:
     def test_no_config_file(self):
         sweep = SafeBinsBypassSweep()
-        with patch("openclaw_audit.sweeps.safebins_bypass.OPENCLAW_CONFIG",
+        with patch("ai_agent_audit.sweeps.safebins_bypass.OPENCLAW_CONFIG",
                     Path("/nonexistent/openclaw.json")):
             result = sweep.run()
         assert len(result.findings) == 1

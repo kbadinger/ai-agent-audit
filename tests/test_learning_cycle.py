@@ -3,9 +3,9 @@
 import tempfile
 from pathlib import Path
 
-from openclaw_audit.db import FindingsDB
-from openclaw_audit.learner import PrecisionTracker
-from openclaw_audit.models import Finding, Severity
+from ai_agent_audit.db import FindingsDB
+from ai_agent_audit.learner import PrecisionTracker
+from ai_agent_audit.models import Finding, Severity
 
 
 def _make_db() -> FindingsDB:

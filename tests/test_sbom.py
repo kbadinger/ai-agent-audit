@@ -5,14 +5,14 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from openclaw_audit.sbom import generate_sbom, sbom_to_json
+from ai_agent_audit.sbom import generate_sbom, sbom_to_json
 
 
 class TestSBOMGeneration:
     def test_sbom_structure(self):
-        with patch("openclaw_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
+        with patch("ai_agent_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
             sbom = generate_sbom()
         assert sbom["bomFormat"] == "CycloneDX"
         assert sbom["specVersion"] == "1.5"
@@ -20,9 +20,9 @@ class TestSBOMGeneration:
         assert "components" in sbom
 
     def test_sbom_metadata(self):
-        with patch("openclaw_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
+        with patch("ai_agent_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
             sbom = generate_sbom()
         assert sbom["metadata"]["component"]["name"] == "openclaw"
 
@@ -38,9 +38,9 @@ class TestSBOMGeneration:
             "author": "testuser",
         }))
 
-        with patch("openclaw_audit.sbom.OPENCLAW_SKILLS", skills), \
-             patch("openclaw_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
+        with patch("ai_agent_audit.sbom.OPENCLAW_SKILLS", skills), \
+             patch("ai_agent_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
             sbom = generate_sbom()
 
         skill_components = [c for c in sbom["components"] if c.get("group") == "openclaw-skills"]
@@ -60,9 +60,9 @@ class TestSBOMGeneration:
             }
         }))
 
-        with patch("openclaw_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_MCP_CONFIG", mcp_config), \
-             patch("openclaw_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
+        with patch("ai_agent_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_MCP_CONFIG", mcp_config), \
+             patch("ai_agent_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
             sbom = generate_sbom()
 
         mcp_components = [c for c in sbom["components"] if c.get("group") == "mcp-servers"]
@@ -71,17 +71,17 @@ class TestSBOMGeneration:
         assert mcp_components[0]["version"] == "2.0.0"
 
     def test_json_roundtrip(self):
-        with patch("openclaw_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
+        with patch("ai_agent_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
             sbom = generate_sbom()
         text = sbom_to_json(sbom)
         parsed = json.loads(text)
         assert parsed["bomFormat"] == "CycloneDX"
 
     def test_empty_no_crash(self):
-        with patch("openclaw_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
-             patch("openclaw_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
+        with patch("ai_agent_audit.sbom.OPENCLAW_SKILLS", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_MCP_CONFIG", Path("/nonexistent")), \
+             patch("ai_agent_audit.sbom.OPENCLAW_EXTENSIONS", Path("/nonexistent")):
             sbom = generate_sbom()
         assert sbom["components"] == []

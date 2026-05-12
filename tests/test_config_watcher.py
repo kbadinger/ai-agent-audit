@@ -4,8 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from openclaw_audit.models import Finding, Severity
-from openclaw_audit.monitors.config_watcher import ConfigWatcher
+from ai_agent_audit.models import Finding, Severity
+from ai_agent_audit.monitors.config_watcher import ConfigWatcher
 
 
 def _run_config_check(config_data: dict) -> list[Finding]:

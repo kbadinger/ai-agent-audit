@@ -2,7 +2,7 @@
 
 import json
 
-from openclaw_audit.sarif import findings_to_sarif, sarif_to_json
+from ai_agent_audit.sarif import findings_to_sarif, sarif_to_json
 
 
 def _make_finding(**overrides):
@@ -43,7 +43,7 @@ class TestSARIFFormatter:
     def test_sarif_tool_metadata(self):
         sarif = findings_to_sarif([], tool_version="1.2.3")
         driver = sarif["runs"][0]["tool"]["driver"]
-        assert driver["name"] == "openclaw-audit"
+        assert driver["name"] == "ai-agent-audit"
         assert driver["version"] == "1.2.3"
 
     def test_sarif_finding_mapping(self):

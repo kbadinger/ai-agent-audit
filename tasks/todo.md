@@ -825,3 +825,110 @@ Released December 2025. Peer-reviewed by 100+ researchers. Endorsed by Microsoft
 - **7 export formats** (+7 new: SARIF, JSONL, CSV, Navigator, STIX, STIX-IOC, SBOM)
 - **1 custom rule engine** (YAML-based, no dependencies)
 - **188 tests** (+111 new across 3 sprints)
+
+---
+
+## Sprint 11: Rename + Multi-Agent Support (2026-05-12)
+
+### Phase A: Rename openclaw-audit → ai-agent-audit
+- [x] `git mv src/openclaw_audit src/ai_agent_audit` and clean stale `egg-info`/`__pycache__`
+- [x] Update all Python imports (`from openclaw_audit` → `from ai_agent_audit`) across src + tests
+- [x] Rewrite `pyproject.toml`: name, script entrypoint, package data, keywords, repo URLs; bump version 0.1.0 → 0.2.0
+- [x] Update CLI prog name, docstrings, `__main__.py`, startup message
+- [x] Update package identifier strings in `sarif.py`, `sbom.py`, `stix.py`, `navigator.py`, `alerting.py`, `mappings.py`, `ioc_updater.py`, `daemon.py`, `persistence_detection.py` (`_OUR_DAEMON`)
+- [x] Update test assertion strings expecting `openclaw-audit`
+
+### Phase B: Hermes parity via AgentProfile abstraction
+- [x] Create `src/ai_agent_audit/agents.py` — `AgentProfile` dataclass + `_openclaw_profile()` + `_hermes_profile()` + `get_active_profile()` resolver
+- [x] Refactor `config.py` to derive every path/permission/pattern constant from `ACTIVE_PROFILE`; keep `OPENCLAW_*` aliases pointing at the active profile for back-compat (zero call-site changes required)
+- [x] Make `SUSPICIOUS_PROCESS_PATTERNS` systemd-match keyword profile-aware
+- [x] Make `EXFIL_PATTERNS` compression-target dotdir profile-aware
+- [x] Wire `monitors/process_monitor.py` + `monitors/network_monitor.py` to `ACTIVE_PROFILE.process_keywords`
+- [x] Wire `sweeps/network_forensics.py` to `ACTIVE_PROFILE.process_keywords`
+- [x] Wire `sweeps/persistence_detection.py` to `ACTIVE_PROFILE.persistence_keywords` + dynamic title/detail
+- [x] Wire `sweeps/vscode_trojan_check.py` to `ACTIVE_PROFILE.vscode_extension_patterns`
+- [x] Wire `sweeps/log_forensics.py` to `<slug>-*.log` glob
+- [x] Wire `sweeps/security_score.py` net-connection cmdline check
+- [x] Wire `monitors/session_analyzer.py` sensitive-paths list to `ACTIVE_PROFILE.slug`
+- [x] Make `sbom.py` emit per-profile component name/description/group
+
+### Phase C: CLI + docs
+- [x] Add top-level `--agent {openclaw,hermes,auto}` flag with pre-parse before heavy imports
+- [x] Defer cli.py heavy imports into command functions so `AI_AGENT_AUDIT_PROFILE` can be set first
+- [x] Print the active profile in `status` and `sweep`
+- [x] Rewrite README front-matter to lead with multi-agent support, document profile table + env vars + how to add a new profile
+
+### Phase D: Verification
+- [x] `pip install -e .` succeeds (version 0.2.0)
+- [x] `ai-agent-audit --help` shows new `--agent` flag
+- [x] `ai-agent-audit --agent openclaw status` resolves to `~/.openclaw/.audit/findings.db`
+- [x] `ai-agent-audit --agent hermes status` resolves to `~/.hermes/.audit/findings.db`
+- [x] `AI_AGENT_AUDIT_PROFILE=hermes python -c "..."` produces hermes paths
+- [x] All 188 tests pass
+
+### Review
+
+**New module:** `src/ai_agent_audit/agents.py` (~115 lines) — `AgentProfile` dataclass + `OPENCLAW`/`HERMES` profiles + `get_active_profile()` resolver. Resolution order: `AI_AGENT_AUDIT_PROFILE` env var (set by `--agent`) → auto-detect installed home dir → OpenClaw fallback.
+
+**Refactor strategy:** Made the profile abstraction transparent. `config.py` rebinds all `OPENCLAW_*` constants as aliases of the active profile's paths, so 70 call sites across monitors/sweeps continue to work unchanged. Behavior-bearing string keywords ("openclaw" in cmdline, "openclaw-*.log" glob, `_OPENCLAW_KEYWORDS` set, vscode extension patterns) were ported to read from `ACTIVE_PROFILE`. User-facing finding titles/details that named the product were templated through `ACTIVE_PROFILE.display_name`.
+
+**Files touched:** 1 new module (`agents.py`), 13 modified python files in src, 6 test files (mock paths updated), pyproject.toml, README.md, src/ai_agent_audit/__init__.py, src/ai_agent_audit/__main__.py.
+
+**Test results:** 188 passed in 0.40s — no regressions. Both `--agent openclaw` and `--agent hermes` confirmed end-to-end via the CLI.
+
+**Notable kept-as-is:** Mapping table descriptive text (`mappings.py`) still names "OpenClaw" in remediation hints because much of it is genuinely OpenClaw-specific threat intel (ClawHavoc, ClawHub, ClawdBot, CVE specifics). Hermes users still get the same finding mechanics; only the remediation prose mentions OpenClaw. If/when Hermes-specific threat intel emerges, the mapping table can be split per-profile without touching detection code.
+
+**To add a third agent:** ~20 lines in `agents.py` — add a `_my_profile()` helper, register it in `all_profiles()`/`SUPPORTED_PROFILES`, add to `--agent` choices. Every monitor, sweep, and exporter applies automatically.
+
+---
+
+## Sprint 11.5: Second-Pass Audit & Hermes Parity Hardening (2026-05-12)
+
+After the initial Sprint 11 rename + profile work, did a full re-audit and found
+gaps + dead artifacts that would have hurt real-world Hermes audits.
+
+### Behavior-bearing hardcodes (would have made Hermes audits silently no-op):
+- [x] `sweeps/docker_security.py:58` — container filter was literal `"openclaw" in line.lower()`; now uses `ACTIVE_PROFILE.process_keywords`
+- [x] `sweeps/behavioral_baseline.py:64` — process filter was literal `"openclaw" not in cmdline`; now uses keywords tuple
+- [x] `alerting.py` Slack/Telegram/macOS alert titles — wired to `ACTIVE_PROFILE.display_name`
+- [x] `stix.py:223` — STIX pattern namespace `x-openclaw-finding` is now `x-{slug}-finding`
+- [x] `stix.py:58` — bundle identity description now uses active profile display name
+
+### Display polish (Hermes findings now say "Hermes" not "OpenClaw"):
+- [x] `permission_audit.py`, `dm_policy_audit.py`, `tool_policy_audit.py`, `safebins_bypass.py`, `agent_comm_audit.py` — finding titles + remediation hints templated through `ACTIVE_PROFILE`
+- [x] `monitors/permission_monitor.py` log message generalized
+
+### Stale artifacts and metadata:
+- [x] Deleted `dist/openclaw_audit-0.1.0-py3-none-any.whl` + `.tar.gz` (mis-slug, would mislead consumers)
+- [x] Updated `.subframe/config.json` project name + description
+- [x] Updated `AGENTS.md` H1, `.subframe/QUICKSTART.md`, `.subframe/STRUCTURE.json`, `.subframe/PROJECT_NOTES.md`, `.subframe/docs-internal/README.md` references
+- [x] Left `.subframe/analysis.log` and `scrollback/term-3.txt` alone — those are historical logs, not active config
+
+### Test coverage:
+- [x] New `tests/test_agents.py` with 10 cases:
+  - profile registry contents
+  - explicit env-var resolution (openclaw + hermes)
+  - per-agent home directory override env vars
+  - auto-detection precedence (openclaw > hermes when both exist)
+  - auto-detection of Hermes-only installs
+  - unknown profile slug raises `ValueError`
+  - `SUSPICIOUS_PROCESS_PATTERNS` systemd pattern adapts per profile
+  - `EXFIL_PATTERNS` compression dot-dir adapts per profile
+  - `INSECURE_CONFIG_RULES` mDNS detail uses profile display name
+
+### Verification:
+- [x] `pytest tests/` → **198 passed** (188 + 10 new) in 0.36s
+- [x] `ai-agent-audit --agent hermes status` → reports Hermes profile, `~/.hermes` paths
+- [x] `ai-agent-audit --agent openclaw status` → reports OpenClaw profile, `~/.openclaw` paths
+
+### Notable not-changed (left intentional):
+- `mappings.py` remediation prose still names "OpenClaw" because much is genuinely OpenClaw-specific threat intel (ClawHavoc/AMOS/ClawHub). When Hermes-specific intel emerges, the table can be split per-profile.
+- `ioc.py` IOC dictionary entries describing `openclaw-agent.exe` and `openclawcli.zip` malware artifacts — those are real published OpenClaw IOCs, not generic placeholders.
+- `.subframe/analysis.log` + `scrollback/term-3.txt` — historical activity logs predating the rename.
+
+### Final stats:
+- **76 → 78 source/test files** touched between Sprint 11 and 11.5
+- **198 tests passing** (10 new agent-profile tests)
+- **2 behavior bugs fixed** that would have made Hermes a no-op audit
+- **5 user-facing strings** repointed to `ACTIVE_PROFILE.display_name`
+- **STIX namespace** now per-profile so threat intel bundles are accurately attributed

@@ -2,7 +2,7 @@
 
 import json
 
-from openclaw_audit.stix import findings_to_stix, ioc_to_stix, stix_to_json
+from ai_agent_audit.stix import findings_to_stix, ioc_to_stix, stix_to_json
 
 
 def _make_finding(**overrides):

@@ -1,0 +1,145 @@
+{
+  "_frame_metadata": {
+    "purpose": "Project structure and module map for AI assistants",
+    "forAI": "Read this file FIRST when starting work on this project. It contains the module structure, data flow, and conventions. Update this file when you add new modules or change the architecture.",
+    "lastUpdated": "2026-03-27",
+    "generatedBy": "SubFrame"
+  },
+  "version": "1.0",
+  "description": "ai-agent-audit - update this description",
+  "architecture": {
+    "type": "",
+    "entryPoint": "",
+    "notes": ""
+  },
+  "modules": {
+    "engine.py": {
+      "purpose": "Central orchestrator — registers monitors/sweeps, runs sweep cycles, enriches and calibrates findings, dispatches callbacks",
+      "exports": [
+        "AuditEngine",
+        "build_default_engine"
+      ]
+    },
+    "cli.py": {
+      "purpose": "Argparse CLI entry point — start/stop/status/sweep/report/fix/update-ioc commands",
+      "exports": [
+        "main"
+      ]
+    },
+    "models.py": {
+      "purpose": "Core data models — Finding (with dedup hash, confidence, triage, MITRE/OWASP fields) and ModuleResult",
+      "exports": [
+        "Severity",
+        "Finding",
+        "ModuleResult"
+      ]
+    },
+    "db.py": {
+      "purpose": "Thread-safe SQLite storage with deduplication, migrations, trend data, and precision stats",
+      "exports": [
+        "FindingsDB"
+      ]
+    },
+    "config.py": {
+      "purpose": "Centralized paths (OpenClaw home, audit data), permission expectations, insecure config rules",
+      "exports": [
+        "OPENCLAW_HOME",
+        "AUDIT_DIR",
+        "AUDIT_DB",
+        "EXPECTED_PERMISSIONS"
+      ]
+    },
+    "ioc.py": {
+      "purpose": "Hardcoded IOC database (C2 IPs, malicious domains, publishers, reverse shell patterns) with match aging and confidence scoring",
+      "exports": [
+        "C2_IPS",
+        "MALICIOUS_DOMAINS",
+        "ioc_confidence",
+        "record_ioc_match"
+      ]
+    },
+    "alerting.py": {
+      "purpose": "Alert dispatcher — sends critical findings to Slack, Telegram, macOS notifications, or file with cooldown deduplication",
+      "exports": [
+        "Alerter"
+      ]
+    },
+    "mappings.py": {
+      "purpose": "Centralized MITRE ATT&CK, OWASP ASI, confidence, and remediation mappings for all finding types",
+      "exports": [
+        "enrich"
+      ]
+    },
+    "learner.py": {
+      "purpose": "Precision tracker — calibrates finding confidence from human triage feedback (confirmed vs false_positive)",
+      "exports": [
+        "PrecisionTracker"
+      ]
+    },
+    "profile.py": {
+      "purpose": "Environment profiler — detects installed components (Docker, MCP, skills, gateway) to skip irrelevant sweeps",
+      "exports": [
+        "EnvironmentProfiler"
+      ]
+    },
+    "report.py": {
+      "purpose": "Jinja2 HTML report generator with 30-day trend charts and security score display",
+      "exports": [
+        "ReportGenerator"
+      ]
+    },
+    "remediate.py": {
+      "purpose": "Auto-remediation engine — permission tightening, config hardening, malicious skill quarantine",
+      "exports": [
+        "RemediationEngine"
+      ]
+    },
+    "daemon.py": {
+      "purpose": "Unix double-fork daemonization, PID file management, signal handling, log setup",
+      "exports": [
+        "daemonize",
+        "read_pid",
+        "write_pid",
+        "stop_daemon"
+      ]
+    },
+    "ioc_updater.py": {
+      "purpose": "External threat intel feed ingestion — merges URL/file IOC data with custom IOC store",
+      "exports": [
+        "IOCUpdater"
+      ]
+    },
+    "monitors/base.py": {
+      "purpose": "Abstract base class for always-on threaded monitors with finding callback",
+      "exports": [
+        "BaseMonitor"
+      ]
+    },
+    "sweeps/base.py": {
+      "purpose": "Abstract base class for periodic sweeps with timing wrapper",
+      "exports": [
+        "BaseSweep"
+      ]
+    },
+    "sweeps/correlation.py": {
+      "purpose": "Multi-indicator attack chain detection — 6 patterns (active breach, privilege escalation, supply chain, exfiltration, coordinated attack, escalating threat)",
+      "exports": [
+        "CorrelationSweep"
+      ]
+    },
+    "sweeps/skill_scanner.py": {
+      "purpose": "Scans installed skills for C2 IPs, AMOS indicators, reverse shells, exfiltration endpoints",
+      "exports": [
+        "SkillScannerSweep"
+      ]
+    },
+    "sweeps/security_score.py": {
+      "purpose": "Weighted 0-135 security score across 17 checks with A-F grade",
+      "exports": [
+        "SecurityScoreSweep"
+      ]
+    }
+  },
+  "dataFlow": [],
+  "conventions": {}
+}
