@@ -1,0 +1,17 @@
+version: 2
+
+secret:
+  ignored-paths:
+    - src/ai_agent_audit/ioc.py
+    - src/ai_agent_audit/stix.py
+    - tests/test_stix.py
+
+  ignored-matches:
+    - name: IOC SHA-1 hash (openclaw-agent.exe keylogger) - public threat intel, not a secret
+      match: 17703b3d5e8e1fe69d6a6c78a240d8c84b32465
+    - name: IOC SHA-1 hash (AMOS macOS binary) - public threat intel, not a secret
+      match: 1e6d4b0538558429422b71d1f4d724c8ce31be92
+    - name: STIX 2.1 TLP:WHITE marking-definition UUID - public standard
+      match: 613f2e26-407d-48c7-9eca-b8e91df99dc9
+    - name: RFC 4122 URL namespace UUID - public standard
+      match: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
