@@ -591,18 +591,18 @@ Released December 2025. Peer-reviewed by 100+ researchers. Endorsed by Microsoft
 **Developer Experience**: Sub-30s scans, IDE integration, PR/MR comments, auto-fix PRs, free/open-source core, CLI-first with optional web dashboard.
 
 **openClawAudit gaps to close for "industry standard"**:
-- [ ] SARIF v2.1.0 output format
-- [ ] MITRE ATT&CK technique IDs on every finding
-- [ ] MITRE ATLAS technique IDs on AI-specific findings
-- [ ] OWASP Agentic Top 10 (ASI01-ASI10) mapping on findings
-- [ ] STIX 2.1 export for IOC sharing
-- [ ] JSON/JSONL streaming output for SIEM integration
-- [ ] YAML-based custom rule authoring (user-extensible rules)
-- [ ] Webhook alerting expansion (already have Slack/Telegram -- need generic webhook)
-- [ ] CycloneDX SBOM generation for agent dependencies
-- [ ] Compliance framework mapping (EU AI Act, NIST AI RMF, ISO 42001)
-- [ ] ATT&CK/ATLAS Navigator layer export
-- [ ] API endpoint for programmatic access
+- [x] SARIF v2.1.0 output format
+- [x] MITRE ATT&CK technique IDs on every finding
+- [x] MITRE ATLAS technique IDs on AI-specific findings
+- [x] OWASP Agentic Top 10 (ASI01-ASI10) mapping on findings
+- [x] STIX 2.1 export for IOC sharing
+- [x] JSON/JSONL streaming output for SIEM integration
+- [x] YAML-based custom rule authoring (user-extensible rules)
+- [x] Webhook alerting expansion (already have Slack/Telegram -- need generic webhook)
+- [x] CycloneDX SBOM generation for agent dependencies
+- [x] Compliance framework mapping (EU AI Act, NIST AI RMF, ISO 42001)
+- [x] ATT&CK/ATLAS Navigator layer export
+- [x] API endpoint for programmatic access
 
 ---
 
@@ -932,3 +932,130 @@ gaps + dead artifacts that would have hurt real-world Hermes audits.
 - **2 behavior bugs fixed** that would have made Hermes a no-op audit
 - **5 user-facing strings** repointed to `ACTIVE_PROFILE.display_name`
 - **STIX namespace** now per-profile so threat intel bundles are accurately attributed
+
+---
+
+## Sprint 12: Threat-Landscape Currency Refresh (2026-06-08)
+
+**Why now:** Last work was 2026-05-12 (27 days ago). For a security tool the perishable
+parts are threat intel + detection coverage. Web research found multiple high-severity
+developments for BOTH supported agents that landed *after* our last commit and that the
+tool is currently blind to.
+
+**Assessment health baseline:** 198/198 tests pass, clean install, v0.2.0. Nothing broken
+— this sprint is about currency, not bugs.
+
+### What's new in the wild (research, June 2026)
+- **OpenClaw "Claw Chain"** (Cyera; patched in OpenClaw 2026.4.22): CVE-2026-44112 (9.6,
+  TOCTOU sandbox write-escape), CVE-2026-44113 (7.7, TOCTOU read-escape), CVE-2026-44115
+  (8.8, heredoc shell-expansion bypasses command allowlist), CVE-2026-44118 (7.8, loopback
+  runtime trusts client-controlled `senderIsOwner` flag without session auth). We have NONE.
+- **Hermes (NousResearch/hermes-agent)** — "9 CVEs in 4 days" (CSA, 2026-05-04). CVE-2026-9368
+  (`tools/code_execution_tool.py:execute_code`), CVE-2026-10221 (`compress_context()` injection),
+  CVE-2026-10548 (credential-pool sync auth bypass, ≤2026.4.23), CVE-2026-7396 (wecom path
+  traversal), CVE-2026-7397 (`file_tools.py` symlink, fixed v0.9.0), CVE-2026-6829 (webui
+  workspace-path manipulation, <v0.50.34). Plus critical default-config issues: `--yolo` flag
+  disables all checks, unset `HERMES_WRITE_SAFE_ROOT`, container auto-approval bypass in
+  `tools/approval.py`, no file-read deny-list, agent-writable `~/.hermes/skills/`,
+  `setup.commands` skill-manifest injection. Our Hermes profile carries ZERO Hermes intel.
+- **Promptware / "C2 brainworm"**: malware injects specs into agent memory/context files so the
+  agent registers with a C2 / beacons out. Hermes auto-loads vulnerable context files (issue #496).
+- **ClawHavoc** expanded 341 → 1,184 malicious ClawHub packages (~12% of registry).
+- **MCP exposure** grew 492 → 1,467 internet-facing servers with zero auth (Trend Micro).
+
+### Group 1 — Threat intel: wire a REAL feed (chosen direction)
+- [x] 1. `ioc_updater.py` — add `update_from_threatfox()`: fetch abuse.ch ThreatFox no-auth export
+      `https://threatfox.abuse.ch/export/json/recent/`, parse the `{id: [ioc]}` schema, map
+      `ioc_type` (ip:port→c2_ips, domain/url→malicious_domains, sha256_hash→file_hashes), filter
+      by `confidence_level >= 75`. Ship a default feed URL constant.
+- [x] 2. `cli.py` — `update-ioc --threatfox` (and keep `--url` for the legacy our-schema path);
+      auto-detect feed format so `--url` to a ThreatFox-shaped JSON also works.
+- [x] 3. `ioc.py` / `mappings.py` — add the new CVE intel (Claw Chain + Hermes) as enrichment entries.
+
+### Group 2 — OpenClaw Claw Chain detection (new CVEs)
+- [x] 4. `agents.py` — add optional `version_file`/`version_key` + `fixed_versions` map to AgentProfile.
+- [x] 5. `sweeps/agent_version_check.py` (new) — read installed version, compare to known-fixed map
+      (OpenClaw ≥2026.4.22, Hermes ≥0.9.0 / credential-pool fix ≥2026.4.23), emit per-CVE findings.
+- [x] 6. Extend `websocket_security.py` / `reverse_proxy_audit.py` for CVE-2026-44118 (loopback
+      `senderIsOwner` trust w/o auth) and `exec_approvals_audit.py` for CVE-2026-44115 (heredoc /
+      command-allowlist gaps).
+
+### Group 3 — Hermes-specific intel (profile is empty today)
+- [x] 7. `agents.py` — correct Hermes paths (`~/.hermes/skills/`, real config filename), add keywords.
+- [x] 8. `sweeps/config audit` (extend `config_watcher`/`dm_policy`/new check) — Hermes hardening:
+      `--yolo` mode, unset `HERMES_WRITE_SAFE_ROOT`, container auto-approval bypass, missing file
+      read deny-list, unrestricted shell, `setup.commands` skill injection. Profile-gated.
+- [x] 9. `mappings.py` — split per-profile remediation prose (the deferred Sprint 11 trigger; Hermes
+      intel has now emerged).
+
+### Group 4 — Injection / memory detection refresh
+- [x] 10. `monitors/memory_poisoning_monitor.py` — add promptware / C2-registration patterns
+      (instructions to "register with", "beacon to", "phone home", connect to external endpoints).
+- [x] 11. `monitors/session_analyzer.py` + `sweeps/mcp_security.py` — new indirect/tool-result
+      injection + MCP tool-poisoning patterns.
+
+### Group 5 — CI + housekeeping
+- [x] 12. `.github/workflows/ci.yml` — run pytest on push/PR; run a self-scan `sweep`; export SARIF
+      and upload to GitHub Code Scanning (we ship SARIF but have no CI consuming it).
+- [x] 13. `.subframe/docs-internal/changelog.md` — create + populate; bump version 0.2.0 → 0.3.0.
+- [x] 14. Tests for every new sweep/parser; keep the suite 100% green.
+
+### Review
+
+**Outcome:** All five groups shipped. 233 tests pass (198 + 35 new), clean
+`pip install -e .`, sweep count 25 → 27. The real feed is genuinely live — a
+ThreatFox fetch pulled 4,185 indicators (→ 1,898 C2 IPs, 2,126 domains, 6 hashes
+at confidence ≥ 75).
+
+**Files created (8):**
+1. `sweeps/agent_version_check.py` — version-gated CVE sweep (Claw Chain + Hermes core)
+2. `sweeps/hermes_hardening.py` — Hermes default-posture checks (slug-gated to hermes)
+3. `.github/workflows/ci.yml` — test matrix (3.10–3.12) + self-scan + SARIF upload
+4. `.subframe/docs-internal/changelog.md` — new changelog, 0.3.0 entry
+5. `tests/test_ioc_threatfox.py` — 12 tests (parser + updater integration)
+6. `tests/test_agent_version_check.py` — 11 tests (Claw Chain, Hermes, edge cases)
+7. `tests/test_hermes_hardening.py` — 6 tests (gating, write-safe-root, skill setup.commands)
+8. `tests/test_promptware.py` — 6 tests (promptware markers + indirect injection)
+
+**Files modified (10):**
+1. `ioc_updater.py` — ThreatFox parser + `update_from_threatfox()`; `--url`/`--file` auto-detect schema
+2. `cli.py` — `update-ioc --threatfox` flag
+3. `agents.py` — `version_command` + per-profile `skills_relpath` (Hermes → `~/.hermes/skills`)
+4. `engine.py` — registered the 2 new sweeps
+5. `monitors/memory_poisoning_monitor.py` — promptware/C2 markers; **fixed** `name` mismatch
+6. `config.py` — 3 indirect-injection patterns (flow to session_analyzer + mcp_security)
+7. `mappings.py` — 6 new enrichment entries (version CVEs, hermes_hardening, promptware)
+8. `pyproject.toml` + `__init__.py` — version 0.2.0 → 0.3.0
+9. `README.md` — counts (27 sweeps, 233 tests), Claw Chain + Hermes CVEs, ThreatFox feed
+
+**Root-cause fix (not just Sprint 12 scope):** `MemoryPoisoningMonitor.name` was
+`memory_poisoning` while the enrichment table keyed on `memory_poisoning_monitor`
+— so **every** real memory-poisoning finding had silently gone un-enriched (no
+MITRE/OWASP/remediation/compliance tags). Renamed the monitor to match. Verified
+with `enrich()`: those findings now carry full tags.
+
+**Honesty notes (no fabricated data):**
+- Claw Chain CVE-2026-44115/44118 are code-bug CVEs with no user-facing config
+  toggle, so they're surfaced via the version check (all four fixed in 2026.4.22),
+  not via invented config keys.
+- Hermes CVE-2026-10221 (`compress_context` injection) had no published fix
+  version in the sources, so it's tracked in intel/mappings only, not version-gated
+  (avoids a fabricated threshold).
+- Hermes uses mixed version schemes (core `2026.4.x` vs webui semver); the version
+  sweep only compares date-scheme installs against date-scheme CVEs to avoid
+  cross-scheme false positives.
+
+**Verification:** end-to-end run against a synthetic vulnerable Hermes install
+(`version 2026.4.16`, skill with `setup.commands`, `HERMES_WRITE_SAFE_ROOT` unset)
+produced exactly the expected findings: CVE-2026-9368, CVE-2026-10548,
+HERMES_WRITE_SAFE_ROOT-not-set, and Skill setup.commands.
+
+### Updated Project Stats
+- **60 Python source files** (+2 sweeps) + 4 new test files
+- **7 always-on monitors**
+- **27 periodic sweeps** (+2: agent_version_check, hermes_hardening)
+- **9 CLI commands** (update-ioc gains `--threatfox`)
+- **7 export formats**, **5 alert backends**
+- **1 real IOC feed wired** (abuse.ch ThreatFox, no API key)
+- **233 tests** (+35 new)
+- **1 latent enrichment bug fixed** (memory_poisoning module-name mismatch)

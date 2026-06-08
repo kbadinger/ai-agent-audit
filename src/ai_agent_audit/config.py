@@ -213,6 +213,11 @@ INJECTION_PATTERNS: list[dict] = [
     {"name": "Control tokens", "pattern": r"(\[INST\]|\[/INST\]|<\|assistant\|>|<\|user\|>|<\|end\|>)"},
     # System prompt extraction
     {"name": "Prompt extraction", "pattern": r"(?i)(repeat|show|display|print|output|reveal)\s+(your|the|system)\s+(prompt|instructions|rules|system message)"},
+    # Indirect injection — content (web pages, tool results, docs) addressing the model
+    {"name": "AI-targeted indirect injection", "pattern": r"(?i)(attention|note|important|hey)\s*[:,\-]?\s*(ai|assistant|agent|language model|llm|chatbot|claude|copilot)\b"},
+    {"name": "Tool-result injection", "pattern": r"(?i)(this|the above|the following)\s+(tool|function|search|web|fetch)?\s*(result|output|response|content)[^\n]{0,40}(ignore|override|disregard|new instructions?|system prompt)"},
+    # Concealment — instructing the model to hide actions from the operator
+    {"name": "Conceal-from-user instruction", "pattern": r"(?i)(do not|don't|never|without)\s+(tell|inform|notify|mention(ing)?\s+to|reveal(ing)?\s+to|alert(ing)?)\s+(the\s+)?(user|human|operator|owner)"},
 ]
 
 # --- Exfiltration patterns ---

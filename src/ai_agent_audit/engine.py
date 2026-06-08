@@ -172,6 +172,8 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
     from .sweeps.mcp_rugpull import MCPRugPullSweep
     from .sweeps.unicode_injection import UnicodeInjectionSweep
     from .sweeps.worm_propagation import WormPropagationSweep
+    from .sweeps.agent_version_check import AgentVersionCheckSweep
+    from .sweeps.hermes_hardening import HermesHardeningSweep
     from .rules import CustomRulesSweep
     from .alerting import Alerter
 
@@ -196,6 +198,7 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
                 CredentialRotationSweep, AgentCommAuditSweep,
                 SafeBinsBypassSweep, MCPRugPullSweep,
                 UnicodeInjectionSweep, WormPropagationSweep,
+                AgentVersionCheckSweep, HermesHardeningSweep,
                 CustomRulesSweep]:
         engine.register_sweep(cls())
 

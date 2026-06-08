@@ -2,7 +2,7 @@
 
 Security audit daemon for local AI agent installations. Ships with built-in
 profiles for [OpenClaw](https://github.com/openclaw) and Hermes, and adding a
-new agent is a single dataclass entry away. Runs 7 always-on monitors and 25
+new agent is a single dataclass entry away. Runs 7 always-on monitors and 27
 periodic security sweeps with self-learning confidence calibration, produces
 reports in 7 formats (SARIF, JSONL, CSV, ATT&CK Navigator, STIX 2.1, CycloneDX
 SBOM), and optionally auto-remediates common issues.
@@ -31,10 +31,18 @@ to hundreds of thousands of developer machines. Recent findings:
 - **CVE-2026-25253**: 1-click RCE via WebSocket origin validation bypass
 - **CVE-2026-28363**: safeBins sandbox bypass (CVSS 9.9)
 - **CVE-2026-21636**: Node.js permission model bypass via Unix Domain Sockets
+- **"Claw Chain"** (CVE-2026-44112/44113/44115/44118, patched in 2026.4.22):
+  chainable TOCTOU sandbox escape → command-validation bypass → loopback
+  privilege escalation (CVSS up to 9.6)
+- **ClawHavoc** has since grown to ~1,184 malicious ClawHub packages (~12% of the registry)
 
-The same risk patterns appear across other local agents — Hermes ships the
-same gateway/sandbox/skill schema, so the same monitors and sweeps apply
-once the profile abstraction tells them where to look.
+Hermes (NousResearch) has had its own run of disclosures — CVE-2026-9368
+(`code_execution_tool`), CVE-2026-10548 (credential-pool auth bypass), and a
+cluster of default-posture issues (`--yolo` mode, unset `HERMES_WRITE_SAFE_ROOT`,
+container approval bypass, `setup.commands` skill injection). Hermes ships the
+same gateway/sandbox/skill schema, so the shared monitors and sweeps apply once
+the profile abstraction tells them where to look, and dedicated Hermes checks
+cover the rest.
 
 ## Installation
 
@@ -83,9 +91,9 @@ Run continuously in the background daemon:
 | **process_monitor** | Agent child processes: reverse shells, crypto miners, pipe-to-shell |
 | **network_monitor** | Outbound connections: C2 IPs, exfiltration domains, unusual ports |
 | **session_analyzer** | Session transcripts: prompt injection, exfiltration, encoding bypasses, tool abuse, social engineering patterns |
-| **memory_poisoning_monitor** | SOUL.md, MEMORY.md, IDENTITY.md for injection payloads + path traversal in extraPaths |
+| **memory_poisoning_monitor** | SOUL.md, MEMORY.md, IDENTITY.md for injection payloads, promptware/C2-registration instructions, + path traversal in extraPaths |
 
-### Periodic Deep Sweeps (25)
+### Periodic Deep Sweeps (27)
 
 Run hourly (configurable) or on-demand via `ai-agent-audit sweep`:
 
@@ -106,6 +114,8 @@ Run hourly (configurable) or on-demand via `ai-agent-audit sweep`:
 | **docker_security** | Root containers, Docker socket mounts, privileged mode |
 | **reverse_proxy_audit** | Localhost trust bypass, Tailscale auth, missing trustedProxies |
 | **node_cve_check** | CVE-2026-21636 Node.js permission model bypass |
+| **agent_version_check** | Version-gated CVEs: OpenClaw "Claw Chain" (44112/44113/44115/44118) + Hermes core (9368, 10548) |
+| **hermes_hardening** | Hermes default-posture: unset `HERMES_WRITE_SAFE_ROOT`, container approval bypass, `--yolo` mode, skill `setup.commands` |
 | **vscode_trojan_check** | Fake agent VS Code extensions (per profile patterns) |
 | **behavioral_baseline** | Process/network/file count anomaly detection (rolling 7-snapshot, mean +/- 2 sigma) |
 | **credential_rotation** | Tracks credential ages, alerts on stale (>90d) or very stale (>180d) |
@@ -219,12 +229,12 @@ ai-agent-audit [--agent {openclaw,hermes,auto}] <command>
   start                  Start background daemon
   stop                   Stop daemon
   status                 Show active profile + daemon PID + finding summary
-  sweep                  Run all 25 sweeps in foreground
+  sweep                  Run all 27 sweeps in foreground
   triage [ID] [--confirm|--fp|--dismiss]  Triage findings
   export [-f FORMAT] [-o FILE]            Export findings (7 formats)
   report [--open]        Generate HTML report
   fix [--dry-run]        Auto-remediate findings
-  update-ioc [--url|--file]  Update IOC database
+  update-ioc [--url|--file|--threatfox]  Update IOC database (incl. abuse.ch ThreatFox)
 ```
 
 ## Auto-Remediation
@@ -262,8 +272,12 @@ Configure in `<agent-home>/.audit/alerts.json` (e.g. `~/.openclaw/.audit/alerts.
 
 Ships with hardcoded IOCs from ClawHavoc and other campaigns. IOCs age automatically — unmatched for 90+ days get reduced confidence, 180+ days marked stale.
 
+Pull fresh, live indicators from **abuse.ch ThreatFox** (no API key required) or
+any feed in the native or ThreatFox JSON schema:
+
 ```bash
-ai-agent-audit update-ioc --url https://example.com/ioc-feed.json
+ai-agent-audit update-ioc --threatfox                              # abuse.ch ThreatFox recent IOCs
+ai-agent-audit update-ioc --url https://example.com/ioc-feed.json  # native or ThreatFox schema
 ai-agent-audit update-ioc --file /path/to/custom-iocs.json
 ai-agent-audit update-ioc  # Show current stats
 ```
@@ -316,7 +330,7 @@ ai-agent-audit
 ```bash
 pip install -e .
 pip install pytest
-pytest tests/ -v   # 188 tests
+pytest tests/ -v   # 233 tests
 ```
 
 ## Platform Support

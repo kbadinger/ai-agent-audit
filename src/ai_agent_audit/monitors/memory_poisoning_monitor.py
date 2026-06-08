@@ -31,6 +31,19 @@ _EXTRA_MARKERS = [
     {"name": "Hidden instruction", "pattern": r"(?i)<hidden>|<!--\s*(instruction|inject|override)"},
 ]
 
+# "Promptware" / C2-brainworm markers: memory-file instructions that make the
+# agent register with, beacon to, or phone home to an external controller.
+_PROMPTWARE_MARKERS = [
+    {"name": "C2 registration instruction",
+     "pattern": r"(?i)(register|check[\s\-]?in|enroll|sign[\s\-]?in)\s+(with|to|at)\s+(https?://|[\w.\-]+\.[a-z]{2,}|the\s+(c2|server|controller))"},
+    {"name": "Beacon / phone-home instruction",
+     "pattern": r"(?i)(beacon|phone[\s\-]?home|report\s+back|call\s+home|ping)\s+(to|back\s+to|home\s+to|the)\b"},
+    {"name": "Startup connect-out instruction",
+     "pattern": r"(?i)(on|at)\s+(startup|launch|boot|every\s+(session|run))[^\n]{0,60}(connect|contact|fetch|download|execute|post|send)"},
+    {"name": "Exfil-to-endpoint instruction",
+     "pattern": r"(?i)(send|post|upload|exfiltrate|transmit)\s+[^\n]{0,60}(to\s+)?(https?://|c2\b|command[\s&]+control)"},
+]
+
 
 class _MemoryFileHandler(FileSystemEventHandler):
     def __init__(self, monitor: MemoryPoisoningMonitor):
@@ -45,7 +58,8 @@ class _MemoryFileHandler(FileSystemEventHandler):
 class MemoryPoisoningMonitor(BaseMonitor):
     """Watches workspace memory files for injection patterns."""
 
-    name = "memory_poisoning"
+    # Must match the mappings.py module key so findings are enriched (MITRE/OWASP).
+    name = "memory_poisoning_monitor"
 
     def __init__(self, on_finding, workspace: Path | None = None):
         super().__init__(on_finding)
@@ -163,5 +177,20 @@ class MemoryPoisoningMonitor(BaseMonitor):
                     severity=Severity.CRITICAL,
                     title=f"Injection marker in {fpath.name}: {marker['name']}",
                     detail=f"Injection marker '{marker['name']}' detected in memory file.",
+                    path=str(fpath),
+                ))
+
+        # Check promptware / C2-registration markers
+        for marker in _PROMPTWARE_MARKERS:
+            if re.search(marker["pattern"], content):
+                self.report_finding(Finding(
+                    module=self.name,
+                    severity=Severity.CRITICAL,
+                    title=f"Promptware C2 instruction in {fpath.name}: {marker['name']}",
+                    detail=(
+                        f"Memory file instructs the agent to {marker['name'].lower()} "
+                        "— a promptware / C2-brainworm pattern. Treat the host as "
+                        "potentially compromised and remove the injected content."
+                    ),
                     path=str(fpath),
                 ))

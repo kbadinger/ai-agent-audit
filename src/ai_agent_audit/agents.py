@@ -34,6 +34,10 @@ class AgentProfile:
         "AGENTS.md",
         "TOOLS.md",
     )
+    # Command that prints the installed agent version (e.g. ("openclaw", "--version")).
+    version_command: tuple[str, ...] = ()
+    # Skills directory, relative to home (OpenClaw uses workspace/skills; Hermes uses skills).
+    skills_relpath: str = "workspace/skills"
     log_dir_override: Optional[Path] = None
 
     @property
@@ -62,7 +66,7 @@ class AgentProfile:
 
     @property
     def skills_path(self) -> Path:
-        return self.workspace_path / "skills"
+        return self.home / self.skills_relpath
 
     @property
     def exec_approvals_path(self) -> Path:
@@ -95,6 +99,8 @@ def _openclaw_profile() -> AgentProfile:
         process_keywords=("openclaw",),
         persistence_keywords=("openclaw", "clawdbot", "moltbot"),
         vscode_extension_patterns=("clawdbot", "openclaw", "moltbot"),
+        version_command=("openclaw", "--version"),
+        skills_relpath="workspace/skills",
     )
 
 
@@ -108,6 +114,8 @@ def _hermes_profile() -> AgentProfile:
         process_keywords=("hermes",),
         persistence_keywords=("hermes", "hermesd", "hermes-agent"),
         vscode_extension_patterns=("hermes", "hermesd", "hermesbot"),
+        version_command=("hermes", "--version"),
+        skills_relpath="skills",
     )
 
 

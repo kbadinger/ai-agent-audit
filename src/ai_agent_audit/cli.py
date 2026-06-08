@@ -144,6 +144,9 @@ def cmd_update_ioc(args: argparse.Namespace) -> None:
         stats = updater.update_from_file(args.file)
     elif args.url:
         stats = updater.update_from_url(args.url)
+    elif args.threatfox:
+        print("Fetching recent IOCs from abuse.ch ThreatFox...")
+        stats = updater.update_from_threatfox()
     else:
         # Show current stats
         s = updater.stats()
@@ -316,8 +319,12 @@ def main() -> None:
 
     ioc_parser = sub.add_parser("update-ioc", help="Update IOC database")
     ioc_source = ioc_parser.add_mutually_exclusive_group()
-    ioc_source.add_argument("--url", help="URL to fetch IOC JSON from")
+    ioc_source.add_argument("--url", help="URL to fetch IOC JSON from (native or ThreatFox schema)")
     ioc_source.add_argument("--file", help="Local file path to load IOC JSON from")
+    ioc_source.add_argument(
+        "--threatfox", action="store_true",
+        help="Fetch recent IOCs from abuse.ch ThreatFox (no API key required)",
+    )
 
     args = parser.parse_args()
 

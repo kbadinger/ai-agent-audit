@@ -383,6 +383,24 @@ _MAPPING_TABLE: list[tuple[str, str, float, str | None, str | None, str | None]]
     # --- security_score ---
     ("security_score", "Security Score", 0.30, None, None,
      "Run ai-agent-audit fix --dry-run to see available remediations."),
+
+    # --- agent_version_check (Claw Chain + Hermes core CVEs) ---
+    ("agent_version_check", "CVE-", 0.95, "T1203", "ASI05",
+     "Upgrade the agent to the patched version. See the finding detail for the fixed release."),
+
+    # --- hermes_hardening (Hermes default-posture intel) ---
+    ("hermes_hardening", "HERMES_WRITE_SAFE_ROOT not set", 0.60, "T1565.001", "ASI03",
+     "Set HERMES_WRITE_SAFE_ROOT to confine agent filesystem writes to a safe root."),
+    ("hermes_hardening", "Container approval auto-bypass", 0.75, "T1562.001", "ASI02",
+     "Hermes skips command approval inside containers. Require explicit approval or isolate the container."),
+    ("hermes_hardening", "Hermes running in --yolo mode", 0.95, "T1562.001", "ASI02",
+     "Stop the agent and relaunch without --yolo; it disables all security checks."),
+    ("hermes_hardening", "Skill setup.commands", 0.85, "T1195.002", "ASI04",
+     "Review and remove setup.commands from the skill manifest; it runs shell on install."),
+
+    # --- memory_poisoning_monitor (promptware / C2 brainworm) ---
+    ("memory_poisoning_monitor", "Promptware C2 instruction", 0.85, "T1071.001", "ASI10",
+     "Remove C2-registration instructions from the memory file and treat the host as compromised."),
 ]
 
 # Build lookup index: list of (module, prefix, metadata_dict)

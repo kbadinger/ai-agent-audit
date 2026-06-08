@@ -6,6 +6,7 @@ import json
 import logging
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from typing import Union
 
@@ -16,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 CUSTOM_IOC_PATH = AUDIT_DIR / "ioc-custom.json"
 
+# abuse.ch ThreatFox recent-IOC export. No API key required, refreshed every
+# 5 minutes, IOCs older than 6 months are expired upstream.
+THREATFOX_FEED_URL = "https://threatfox.abuse.ch/export/json/recent/"
+THREATFOX_MIN_CONFIDENCE = 75
+
 _EMPTY: dict = {
     "c2_ips": [],
     "malicious_domains": [],
@@ -24,27 +30,113 @@ _EMPTY: dict = {
 }
 
 
+def _looks_like_threatfox(raw: object) -> bool:
+    """ThreatFox export is {id: [ {ioc_value, ioc_type, ...} ]}."""
+    if not isinstance(raw, dict):
+        return False
+    for value in raw.values():
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and isinstance(value[0], dict)
+            and "ioc_value" in value[0]
+        )
+    return False
+
+
+def _url_host(url: str) -> str | None:
+    """Extract the host from a URL IOC; fall back to None if unparseable."""
+    try:
+        host = urllib.parse.urlparse(url).hostname
+    except ValueError:
+        return None
+    return host
+
+
+def parse_threatfox(raw: dict, min_confidence: int = THREATFOX_MIN_CONFIDENCE) -> dict:
+    """Convert a ThreatFox export into this tool's IOC schema."""
+    out: dict = {"c2_ips": [], "malicious_domains": [], "malicious_publishers": {}, "file_hashes": {}}
+    for entries in raw.values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                confidence = int(entry.get("confidence_level") or 0)
+            except (TypeError, ValueError):
+                confidence = 0
+            if confidence < min_confidence:
+                continue
+            value = (entry.get("ioc_value") or "").strip()
+            if not value:
+                continue
+            ioc_type = (entry.get("ioc_type") or "").lower()
+            label = (
+                entry.get("malware_printable")
+                or entry.get("malware")
+                or entry.get("threat_type")
+                or "threatfox"
+            )
+            if ioc_type == "ip:port":
+                out["c2_ips"].append(value.split(":", 1)[0])
+            elif ioc_type in ("domain", "hostname"):
+                out["malicious_domains"].append(value)
+            elif ioc_type == "url":
+                host = _url_host(value)
+                if host:
+                    out["malicious_domains"].append(host)
+            elif ioc_type in ("sha256_hash", "sha1_hash", "md5_hash"):
+                out["file_hashes"][value] = label
+    return out
+
+
 class IOCUpdater:
     """Updates IOC database from external feeds or local files."""
+
+    def _fetch_url(self, url: str) -> object:
+        """Fetch and JSON-decode a URL. Raises on network/parse errors."""
+        req = urllib.request.Request(url, headers={"User-Agent": "ai-agent-audit"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode())
+
+    def _normalize(self, raw: object) -> dict:
+        """Accept either this tool's IOC schema or a ThreatFox export."""
+        if _looks_like_threatfox(raw):
+            return parse_threatfox(raw)
+        return raw if isinstance(raw, dict) else {}
 
     def update_from_url(self, url: str) -> dict:
         """Download IOC data from a URL (JSON) and merge with custom IOCs.
 
+        Accepts this tool's native schema or an abuse.ch ThreatFox export.
         Returns stats dict with counts of new entries added.
         """
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "ai-agent-audit"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = json.loads(resp.read().decode())
+            raw = self._fetch_url(url)
         except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError) as exc:
             logger.error("Failed to fetch IOC feed from %s: %s", url, exc)
             return {"error": str(exc)}
 
-        return self._merge(raw)
+        return self._merge(self._normalize(raw))
+
+    def update_from_threatfox(self, min_confidence: int = THREATFOX_MIN_CONFIDENCE) -> dict:
+        """Fetch recent IOCs from abuse.ch ThreatFox (no API key) and merge."""
+        try:
+            raw = self._fetch_url(THREATFOX_FEED_URL)
+        except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError) as exc:
+            logger.error("Failed to fetch ThreatFox feed: %s", exc)
+            return {"error": str(exc)}
+
+        if not _looks_like_threatfox(raw):
+            return {"error": "Unexpected ThreatFox response format"}
+
+        return self._merge(parse_threatfox(raw, min_confidence))
 
     def update_from_file(self, path: Union[str, Path]) -> dict:
         """Load IOC data from a local JSON file and merge.
 
+        Accepts this tool's native schema or an abuse.ch ThreatFox export.
         Returns stats dict with counts of new entries added.
         """
         path = Path(path)
@@ -54,7 +146,7 @@ class IOCUpdater:
             logger.error("Failed to load IOC file %s: %s", path, exc)
             return {"error": str(exc)}
 
-        return self._merge(raw)
+        return self._merge(self._normalize(raw))
 
     def get_merged_iocs(self) -> dict:
         """Return combined hardcoded + custom IOCs."""

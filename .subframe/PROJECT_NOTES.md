@@ -11,6 +11,35 @@
 ### [2026-03-27] Initial Setup
 - SubFrame project initialized
 
+### [2026-06-08] Sprint 12 — Threat-Landscape Currency Refresh
+Assessment ~4 weeks after the last work (Sprint 11.5, 2026-05-12). Tool was healthy
+but threat intel had gone stale. Web research surfaced major post-May-12 events for
+both supported agents that the tool was blind to, and Kevin chose to wire a *real*
+feed (not extend the synthetic corpus). Key decisions:
+
+- **Real IOC feed = abuse.ch ThreatFox.** Chosen for its no-auth JSON export
+  (`/export/json/recent/`), which drops straight into the existing `ioc_updater`.
+  `update_from_url`/`--file` now auto-detect ThreatFox vs the native schema, so the
+  feed mechanism is reusable. Live fetch validated: ~4,185 indicators at the time.
+- **New CVEs are version-gated, not config-faked.** OpenClaw "Claw Chain"
+  (44112/44113/44115/44118, all fixed 2026.4.22) and Hermes core CVEs (9368, 10548)
+  are code-bug CVEs with no user-config toggle. Detecting them via an
+  `agent_version_check` sweep is the honest mechanism; inventing config keys would
+  have been fabricated data. Hermes' mixed version schemes (date `2026.4.x` vs webui
+  semver) are handled by only comparing date-scheme installs to date-scheme CVEs.
+- **Hermes finally has real detection content.** The profile existed since Sprint 11
+  but carried zero Hermes intel; the Sprint 11 review explicitly deferred per-profile
+  content until "Hermes-specific intel emerges." It has now (CSA's "9 CVEs in 4 days",
+  Repello threat model), so `hermes_hardening` covers the genuinely-detectable
+  defaults (HERMES_WRITE_SAFE_ROOT, container approval bypass, --yolo, skill
+  setup.commands), and the Hermes `skills_path` was corrected to `~/.hermes/skills`.
+- **Latent bug found + fixed:** `MemoryPoisoningMonitor.name` ("memory_poisoning")
+  never matched the enrichment table key ("memory_poisoning_monitor"), so real
+  memory-poisoning findings had always shipped un-enriched. Root-caused and renamed.
+
+Result: 27 sweeps (was 25), 233 tests (was 198), v0.3.0, plus the project's first
+CI workflow.
+
 
 ## AI Analysis
 
