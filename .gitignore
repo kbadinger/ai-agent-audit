@@ -12,3 +12,14 @@ dist/
 build/
 *.egg-info/
 .claude/
+.DS_Store
+
+# SubFrame runtime state & machinery (regenerated per machine; not for VCS)
+.subframe/agent-state.json
+.subframe/analysis.log
+.subframe/scrollback/
+.subframe/bin/
+.subframe/hooks/
+.subframe/pipelines/
+.subframe/workflows/
+.githooks/
