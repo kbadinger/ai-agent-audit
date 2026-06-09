@@ -70,11 +70,20 @@ class TestSARIFFormatter:
         loc = result["locations"][0]["physicalLocation"]["artifactLocation"]
         assert loc["uri"] == "/test/path.json"
 
-    def test_sarif_no_location_when_no_path(self):
+    def test_sarif_fallback_location_when_no_path(self):
+        # GitHub Code Scanning requires every result to have a location; path-less
+        # findings get a stable per-module sentinel uri.
         f = _make_finding(path=None)
         sarif = findings_to_sarif([f])
         result = sarif["runs"][0]["results"][0]
-        assert "locations" not in result
+        loc = result["locations"][0]["physicalLocation"]["artifactLocation"]
+        assert loc["uri"] == f"ai-agent-audit/{f['module']}"
+
+    def test_sarif_every_result_has_a_location(self):
+        findings = [_make_finding(path="/a.json"), _make_finding(path=None)]
+        sarif = findings_to_sarif(findings)
+        for result in sarif["runs"][0]["results"]:
+            assert result.get("locations"), "every Code Scanning result needs a location"
 
     def test_sarif_mitre_owasp_tags(self):
         f = _make_finding(mitre_attack="T1190", owasp_asi="ASI03")

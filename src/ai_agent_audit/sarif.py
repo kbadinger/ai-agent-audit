@@ -79,15 +79,14 @@ def findings_to_sarif(findings: list[dict], tool_version: str = "0.1.0") -> dict
         if f.get("triage_status"):
             result["properties"]["triageStatus"] = f["triage_status"]
 
-        # Add location if path is available
-        if f.get("path"):
-            result["locations"] = [
-                {
-                    "physicalLocation": {
-                        "artifactLocation": {"uri": f["path"]},
-                    }
-                }
-            ]
+        # Every result needs a location or GitHub Code Scanning rejects the SARIF
+        # ("expected at least one location"). Use the file path when known, else a
+        # stable per-module sentinel — these findings are about the audited
+        # environment/config state, not a specific repo file.
+        uri = f["path"] if f.get("path") else f"ai-agent-audit/{f['module']}"
+        result["locations"] = [
+            {"physicalLocation": {"artifactLocation": {"uri": uri}}}
+        ]
 
         results.append(result)
 

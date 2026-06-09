@@ -44,6 +44,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - `MemoryPoisoningMonitor.name` was `memory_poisoning` but the enrichment table
   keyed on `memory_poisoning_monitor`, so real memory-poisoning findings were
   never enriched with MITRE/OWASP/remediation tags. Renamed to match.
+- **SARIF rejected by GitHub Code Scanning** for findings without a file path
+  (e.g. "Gateway not running", "MCP config not found") — Code Scanning requires
+  every result to have a location. Path-less results now get a stable per-module
+  sentinel URI. Surfaced by the new CI self-scan on first run.
 - **Fed IOCs never reached detection.** `update-ioc` (`--url`/`--file`/`--threatfox`)
   wrote `ioc-custom.json`, but the sweeps/monitors import the hardcoded `ioc.*`
   sets directly and nothing loaded the custom file into them — so no fetched
