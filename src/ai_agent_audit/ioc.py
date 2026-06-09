@@ -226,3 +226,39 @@ C2_PORTS: set[int] = {
     8443,   # Common C2 HTTPS
     9090,   # Common C2
 }
+
+
+# --- Custom / external feed IOC loading ---
+
+def load_custom_iocs(path: "Path | None" = None) -> int:
+    """Merge IOCs from the on-disk custom feed file into the in-memory sets.
+
+    `update-ioc` (and the ThreatFox auto-refresh) write indicators to
+    `ioc-custom.json`. Detection modules import the C2_IPS / MALICIOUS_DOMAINS /
+    EXFIL_DOMAINS / MALICIOUS_HASHES / MALICIOUS_PUBLISHERS objects directly, so
+    this mutates those objects *in place* — making fed indicators actually
+    participate in matching. Returns the count of new indicators loaded.
+    """
+    if path is None:
+        from .config import AUDIT_DIR
+        path = AUDIT_DIR / "ioc-custom.json"
+    if not path.exists():
+        return 0
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to load custom IOCs from %s: %s", path, exc)
+        return 0
+
+    def _size() -> int:
+        return (len(C2_IPS) + len(MALICIOUS_DOMAINS) + len(EXFIL_DOMAINS)
+                + len(MALICIOUS_HASHES) + len(MALICIOUS_PUBLISHERS))
+
+    before = _size()
+    domains = data.get("malicious_domains", []) or []
+    C2_IPS.update(data.get("c2_ips", []) or [])
+    MALICIOUS_DOMAINS.update(domains)
+    EXFIL_DOMAINS.update(domains)  # EXFIL_DOMAINS is a snapshot union; keep it in sync
+    MALICIOUS_HASHES.update(data.get("file_hashes", {}) or {})
+    MALICIOUS_PUBLISHERS.update(data.get("malicious_publishers", {}) or {})
+    return _size() - before

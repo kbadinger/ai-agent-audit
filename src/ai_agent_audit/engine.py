@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
 from typing import Optional
 
-from .config import DEFAULT_SWEEP_INTERVAL_SECONDS
+from .config import (
+    DEFAULT_SWEEP_INTERVAL_SECONDS,
+    IOC_AUTO_REFRESH,
+    IOC_REFRESH_INTERVAL_SECONDS,
+    AUDIT_BASELINES,
+)
 from .db import FindingsDB
-from .ioc import load_ioc_matches, save_ioc_matches
+from .ioc import load_ioc_matches, load_custom_iocs, save_ioc_matches
 from .learner import PrecisionTracker
 from .mappings import enrich
 from .models import Finding, ModuleResult
@@ -43,6 +49,8 @@ class AuditEngine:
         self.tracker = PrecisionTracker(db=self.db)
         self.profiler = EnvironmentProfiler()
         load_ioc_matches()
+        # Pull any previously-fetched feed IOCs into the live detection sets.
+        load_custom_iocs()
 
     def register_monitor(self, monitor: BaseMonitor) -> None:
         self._monitors.append(monitor)
@@ -61,8 +69,41 @@ class AuditEngine:
             except Exception:
                 logger.warning("Finding callback failed", exc_info=True)
 
+    def _maybe_refresh_iocs(self) -> None:
+        """Refresh the ThreatFox feed if enabled and the interval has elapsed.
+
+        Fail-safe: network/parse errors are logged and never break a sweep cycle.
+        The stamp is only advanced on success, so a transient outage retries next
+        cycle.
+        """
+        if not IOC_AUTO_REFRESH:
+            return
+        stamp = AUDIT_BASELINES / "ioc-refresh.json"
+        now = time.time()
+        last = 0.0
+        try:
+            if stamp.exists():
+                last = float(json.loads(stamp.read_text()).get("last", 0.0))
+        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+            last = 0.0
+        if now - last < IOC_REFRESH_INTERVAL_SECONDS:
+            return
+        try:
+            from .ioc_updater import IOCUpdater
+            stats = IOCUpdater().update_from_threatfox()
+            if "error" in stats:
+                logger.warning("IOC feed refresh failed: %s", stats["error"])
+                return
+            loaded = load_custom_iocs()
+            logger.info("IOC feed refreshed: %s (%d indicators live in detection)", stats, loaded)
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(json.dumps({"last": now}))
+        except Exception:
+            logger.warning("IOC auto-refresh error", exc_info=True)
+
     def run_all_sweeps(self) -> list[ModuleResult]:
         """Run all registered sweeps and store results."""
+        self._maybe_refresh_iocs()
         results = []
         for sweep in self._sweeps:
             if not self.profiler.is_relevant(sweep.name):

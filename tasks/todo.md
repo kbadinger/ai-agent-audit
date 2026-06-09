@@ -1059,3 +1059,39 @@ HERMES_WRITE_SAFE_ROOT-not-set, and Skill setup.commands.
 - **1 real IOC feed wired** (abuse.ch ThreatFox, no API key)
 - **233 tests** (+35 new)
 - **1 latent enrichment bug fixed** (memory_poisoning module-name mismatch)
+
+---
+
+## Sprint 12.1: Make the feed actually live (2026-06-09)
+
+Follow-up to Sprint 12. While wiring daemon auto-refresh, found that the whole
+`update-ioc` feature was cosmetic: it wrote `ioc-custom.json` but nothing read it
+back into the IOC sets the sweeps/monitors import, so no fetched indicator ever
+matched anything.
+
+- [x] `ioc.load_custom_iocs()` — merge the custom feed file into the in-memory
+      `C2_IPS`/`MALICIOUS_DOMAINS`/`EXFIL_DOMAINS`/`MALICIOUS_HASHES`/`MALICIOUS_PUBLISHERS`
+      objects *in place* (so direct importers see it). Called at engine startup.
+- [x] `engine._maybe_refresh_iocs()` — ThreatFox auto-refresh on the sweep cycle,
+      interval-gated (default 6h) via a `baselines/ioc-refresh.json` stamp,
+      fail-safe (network errors logged, stamp only advances on success), reloads
+      the sets after a successful fetch.
+- [x] `config.py` — `IOC_AUTO_REFRESH` (env `AI_AGENT_AUDIT_IOC_AUTOREFRESH`, default on)
+      and `IOC_REFRESH_INTERVAL_SECONDS` (env `AI_AGENT_AUDIT_IOC_REFRESH_HOURS`, default 6).
+- [x] `tests/test_ioc_live_feed.py` — 6 tests (loader merges + shared-object visibility,
+      missing file, refresh gating, disabled, network-error safety).
+- [x] README + changelog updated.
+
+### Review
+**Root-cause fix:** `update-ioc` (all of `--url`/`--file`/`--threatfox`) was a no-op
+for detection — fetched IOCs landed in a file the sweeps never consulted. Now they
+merge into the live sets at startup and after each refresh.
+
+**Verified live:** a real ThreatFox fetch pulled 5,493 indicators; `C2_IPS` grew
+5 → 1,519 and `mcp_security.C2_IPS` matched a real fed IP via the shared object.
+
+**Default-on note:** auto-refresh defaults *on* (honors "make the feed live"); it
+performs outbound HTTPS to abuse.ch on the sweep cycle. Disable with
+`AI_AGENT_AUDIT_IOC_AUTOREFRESH=0` for air-gapped installs.
+
+**Stats:** 239 tests (+6), 2 new config knobs, 1 latent no-op-feature bug fixed.

@@ -282,6 +282,15 @@ ai-agent-audit update-ioc --file /path/to/custom-iocs.json
 ai-agent-audit update-ioc  # Show current stats
 ```
 
+Fetched indicators are merged into the live detection sets, so they immediately
+participate in network/skill/MCP matching. When the daemon is running, the
+ThreatFox feed **auto-refreshes** on the sweep cycle (default every 6 hours):
+
+```bash
+AI_AGENT_AUDIT_IOC_AUTOREFRESH=0     # disable auto-refresh (air-gapped installs)
+AI_AGENT_AUDIT_IOC_REFRESH_HOURS=24  # change the refresh cadence
+```
+
 ## Attack Chain Detection
 
 The correlation engine detects 8 multi-indicator patterns:

@@ -8,6 +8,7 @@ Prefer the new AGENT_* aliases in new code.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .agents import get_active_profile
@@ -252,3 +253,15 @@ EXFIL_PATTERNS: list[dict] = [
 
 DEFAULT_SWEEP_INTERVAL_SECONDS = 3600  # 1 hour
 MONITOR_POLL_INTERVAL_SECONDS = 30
+
+# --- IOC feed auto-refresh (abuse.ch ThreatFox) ---
+# On by default so the wired feed stays live; disable for air-gapped installs
+# with AI_AGENT_AUDIT_IOC_AUTOREFRESH=0 (or false/no/off).
+IOC_AUTO_REFRESH = (
+    os.environ.get("AI_AGENT_AUDIT_IOC_AUTOREFRESH", "1").lower()
+    not in ("0", "false", "no", "off")
+)
+# Minimum seconds between feed fetches (the daemon checks each sweep cycle).
+IOC_REFRESH_INTERVAL_SECONDS = int(
+    os.environ.get("AI_AGENT_AUDIT_IOC_REFRESH_HOURS", "6") or "6"
+) * 3600

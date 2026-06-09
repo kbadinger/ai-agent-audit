@@ -29,6 +29,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **GitHub Actions CI** (`.github/workflows/ci.yml`) — runs the test suite on
   Python 3.10–3.12, then self-scans the repo and uploads SARIF to Code Scanning.
 - Per-agent `version_command` and `skills_relpath` on `AgentProfile`.
+- **Live IOC feed in the daemon** — the ThreatFox feed auto-refreshes on the
+  sweep cycle (default every 6h; disable with `AI_AGENT_AUDIT_IOC_AUTOREFRESH=0`,
+  tune with `AI_AGENT_AUDIT_IOC_REFRESH_HOURS`). Fail-safe: network errors are
+  logged and never break a sweep.
 
 ### Changed
 - `AgentProfile.skills_path` is now profile-relative (`workspace/skills` for
@@ -40,3 +44,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - `MemoryPoisoningMonitor.name` was `memory_poisoning` but the enrichment table
   keyed on `memory_poisoning_monitor`, so real memory-poisoning findings were
   never enriched with MITRE/OWASP/remediation tags. Renamed to match.
+- **Fed IOCs never reached detection.** `update-ioc` (`--url`/`--file`/`--threatfox`)
+  wrote `ioc-custom.json`, but the sweeps/monitors import the hardcoded `ioc.*`
+  sets directly and nothing loaded the custom file into them — so no fetched
+  indicator ever participated in matching. New `ioc.load_custom_iocs()` merges the
+  file into those sets in place (incl. the `EXFIL_DOMAINS` snapshot) at engine
+  startup and after each refresh. Verified live: 5,493 ThreatFox indicators became
+  matchable.
