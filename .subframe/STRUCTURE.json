@@ -2,7 +2,7 @@
   "_frame_metadata": {
     "purpose": "Project structure and module map for AI assistants",
     "forAI": "Read this file first, then PROJECT_NOTES.md and tasks.json. Update it when modules or architectural boundaries change.",
-    "lastUpdated": "2026-07-19",
+    "lastUpdated": "2026-07-20",
     "generatedBy": "SubFrame"
   },
   "version": "1.1",
@@ -79,6 +79,12 @@
       "exports": ["RemediationEngine"],
       "depends": ["core/agentConfig", "core/config", "core/ioc"]
     },
+    "exports/sarif": {
+      "file": "src/ai_agent_audit/sarif.py",
+      "description": "Converts active findings to SARIF 2.1.0 with package-version metadata for external consumers.",
+      "exports": ["findings_to_sarif", "sarif_to_json"],
+      "depends": ["core/models", "core/version"]
+    },
     "monitors/configWatcher": {
       "file": "src/ai_agent_audit/monitors/config_watcher.py",
       "description": "Watches current JSON5/YAML config and reports explicit insecure values and hardcoded secrets.",
@@ -123,7 +129,19 @@
     "safeRemediation": {
       "issue": "Rewriting cloned config keys could corrupt newer agent configurations.",
       "solution": "Config changes are delegated to a product-native fixer with a validated backup and automatic restoration on failure."
+    },
+    "publicReleaseSecurity": {
+      "issue": "Agent-environment self-scan notes were uploaded as repository Code Scanning alerts while disclosure, dependency, secret-scanning, and branch controls were absent.",
+      "solution": "Runtime SARIF is retained as a CI artifact; CodeQL owns source scanning, public security/contribution policies document expectations, and GitHub-native repository protections are enabled."
     }
+  },
+  "repositoryControls": {
+    "ci": ".github/workflows/ci.yml",
+    "codeScanning": ".github/workflows/codeql.yml",
+    "dependencyUpdates": ".github/dependabot.yml",
+    "securityPolicy": "SECURITY.md",
+    "contributorGuide": "CONTRIBUTING.md",
+    "codeOfConduct": "CODE_OF_CONDUCT.md"
   },
   "conventions": {
     "configParsing": "Use agent_config.py; do not call json.loads directly on agent configuration.",

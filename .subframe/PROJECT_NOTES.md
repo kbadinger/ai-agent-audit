@@ -70,6 +70,22 @@ confidence aging. This supersedes the original three-dependency goal by adding
 `json5` and `PyYAML`; accurate parsing of supported agent formats was judged
 more important than preserving the smaller dependency count.
 
+### [2026-07-20] Public Release Hardening
+The repository was already public, but the v0.4.0 commit had not reached the
+remote and the hosted project controls did not match the expectations of a
+security tool. Private vulnerability reporting, Dependabot security updates,
+secret scanning, push protection, and main-branch protection were all disabled;
+the self-scan also uploaded agent-environment observations from an empty GitHub
+runner into Code Scanning, creating 15 misleading open alerts.
+
+The release boundary now separates runtime-agent diagnostics from source-code
+security analysis. Self-scan SARIF remains a downloadable CI artifact, while a
+dedicated CodeQL workflow owns GitHub Code Scanning. Actions are pinned to
+immutable revisions. Public documentation adds coordinated-disclosure and
+contribution expectations, sources threat-landscape claims, and distinguishes
+Linux CI coverage from manual macOS and best-effort Windows support. The SARIF
+producer also reports the actual package version rather than a stale literal.
+
 
 ## AI Analysis
 

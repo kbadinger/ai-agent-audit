@@ -8,17 +8,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package + test deps
@@ -31,9 +38,12 @@ jobs:
   quality:
     name: Coverage and critical lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
       - name: Install package + quality deps
@@ -50,13 +60,16 @@ jobs:
   self-scan:
     name: Self-scan (dogfood)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [test, quality]
-    permissions:
-      contents: read
-      security-events: write
+    env:
+      AI_AGENT_AUDIT_ADVISORY_AUTOREFRESH: "0"
+      AI_AGENT_AUDIT_IOC_AUTOREFRESH: "0"
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Install package
@@ -64,17 +77,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
       - name: Run security sweep
-        run: ai-agent-audit sweep
+        run: ai-agent-audit sweep --fail-on error
       - name: Export findings as SARIF
         run: ai-agent-audit export --format sarif --output ai-agent-audit.sarif
       - name: Upload SARIF artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-agent-audit-sarif
           path: ai-agent-audit.sarif
-      - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: ai-agent-audit.sarif
-        # Requires Code Scanning to be enabled on the repo; don't fail CI if not.
-        continue-on-error: true
+          retention-days: 14
