@@ -29,11 +29,11 @@ classifiers = [
 ]
 keywords = ["openclaw", "hermes", "security", "audit", "ai-agent", "monitoring"]
 dependencies = [
-    "watchdog>=3.0",
-    "psutil>=5.9",
-    "jinja2>=3.1",
-    "json5>=0.9",
-    "PyYAML>=6.0",
+    "watchdog>=6.0.0",
+    "psutil>=7.2.2",
+    "jinja2>=3.1.6",
+    "json5>=0.15.0",
+    "PyYAML>=6.0.3",
 ]
 
 [project.optional-dependencies]
