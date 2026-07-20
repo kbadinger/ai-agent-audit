@@ -22,13 +22,18 @@ _PROCESS_KEYWORDS = tuple(kw.lower() for kw in ACTIVE_PROFILE.process_keywords)
 def _get_agent_pids() -> list[int]:
     """Find PIDs of processes matching the active agent's process keywords."""
     pids: list[int] = []
-    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+    try:
+        processes = list(psutil.process_iter(["pid", "name", "cmdline"]))
+    except (psutil.Error, OSError) as exc:
+        logger.warning("Process visibility unavailable: %s", exc)
+        return pids
+    for proc in processes:
         try:
             name = (proc.info["name"] or "").lower()
             cmdline = " ".join(proc.info["cmdline"] or []).lower()
             if any(kw in name or kw in cmdline for kw in _PROCESS_KEYWORDS):
                 pids.append(proc.info["pid"])
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.Error, OSError, KeyError, TypeError):
             continue
     return pids
 

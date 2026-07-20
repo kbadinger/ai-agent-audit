@@ -72,7 +72,7 @@ _HOMOGLYPH_PAIRS = {
 # Files to scan in workspace/home
 _CONFIG_FILES = [
     "CLAUDE.md", "AGENTS.md", "GEMINI.md",
-    "openclaw.json", "mcp.json",
+    "openclaw.json", "config.yaml", "mcp.json",
     "exec-approvals.json",
 ]
 
@@ -94,13 +94,17 @@ class UnicodeInjectionSweep(BaseSweep):
 
         # Scan memory files
         for mem_name in MEMORY_FILES:
-            for base in (OPENCLAW_HOME, OPENCLAW_WORKSPACE):
+            for base in dict.fromkeys((OPENCLAW_HOME, OPENCLAW_WORKSPACE)):
                 path = base / mem_name
                 if path.exists():
                     self._scan_file(path, findings)
+        memories = OPENCLAW_WORKSPACE / "memories"
+        if memories.is_dir():
+            for path in memories.rglob("*.md"):
+                self._scan_file(path, findings)
 
         # Scan MCP config
-        if OPENCLAW_MCP_CONFIG.exists():
+        if OPENCLAW_MCP_CONFIG.exists() and OPENCLAW_MCP_CONFIG.name not in _CONFIG_FILES:
             self._scan_file(OPENCLAW_MCP_CONFIG, findings)
 
         # Scan skill files (SKILL.md, skill.json, package.json)

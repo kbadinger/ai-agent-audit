@@ -31,6 +31,7 @@ AGENT_SKILLS = ACTIVE_PROFILE.skills_path
 AGENT_EXEC_APPROVALS = ACTIVE_PROFILE.exec_approvals_path
 AGENT_MCP_CONFIG = ACTIVE_PROFILE.mcp_config_path
 AGENT_IDENTITY = ACTIVE_PROFILE.identity_path
+AGENT_SENSITIVE_FILES = ACTIVE_PROFILE.sensitive_files
 
 # Legacy aliases (point at the active profile, regardless of which agent)
 OPENCLAW_HOME = AGENT_HOME
@@ -66,6 +67,7 @@ EXPECTED_PERMISSIONS: dict[Path, int] = {
     AGENT_CREDENTIALS: 0o700,
     AGENT_EXTENSIONS: 0o700,
 }
+EXPECTED_PERMISSIONS.update({path: 0o600 for path in AGENT_SENSITIVE_FILES})
 
 # Glob patterns for files that should be 600
 SENSITIVE_FILE_PATTERNS: list[str] = [
@@ -74,29 +76,35 @@ SENSITIVE_FILE_PATTERNS: list[str] = [
     "credentials/*",
     ".env",
     "identity/device-auth.json",
+    *ACTIVE_PROFILE.sensitive_file_relpaths,
 ]
 
 # --- Insecure agent config rules ---
 # Each rule: (json_path, condition_fn, severity, title, detail)
-# Keys apply to gateway/sandbox/logging schemas common to OpenClaw and Hermes.
+# Rules may name one current key plus legacy fallbacks. ``profiles`` limits a
+# rule to products whose schema actually defines that setting.
 
 INSECURE_CONFIG_RULES: list[dict] = [
     {
         "key": "gateway.bind",
+        "profiles": ("openclaw",),
         "check": lambda v: v not in (None, "127.0.0.1", "localhost", "::1", "loopback"),
         "severity": "CRITICAL",
         "title": "Gateway bound to non-loopback address",
         "detail": "Gateway is accessible from the network. Bind to 127.0.0.1.",
     },
     {
-        "key": "gateway.auth.enabled",
-        "check": lambda v: v is False,
+        "key": "gateway.auth.mode",
+        "legacy_keys": ("gateway.auth.enabled",),
+        "profiles": ("openclaw",),
+        "check": lambda v: v is False or (isinstance(v, str) and v.lower() == "none"),
         "severity": "CRITICAL",
         "title": "Authentication disabled",
         "detail": "Gateway authentication is disabled. Any client can connect.",
     },
     {
         "key": "gateway.auth.allowOpenDM",
+        "profiles": ("openclaw",),
         "check": lambda v: v is True,
         "severity": "CRITICAL",
         "title": "Open DM policy enabled",
@@ -104,6 +112,7 @@ INSECURE_CONFIG_RULES: list[dict] = [
     },
     {
         "key": "gateway.auth.deviceAuth",
+        "profiles": ("openclaw",),
         "check": lambda v: v is False,
         "severity": "CRITICAL",
         "title": "Device authentication disabled",
@@ -111,6 +120,7 @@ INSECURE_CONFIG_RULES: list[dict] = [
     },
     {
         "key": "gateway.controlUi.allowInsecureAuth",
+        "profiles": ("openclaw",),
         "check": lambda v: v is True,
         "severity": "CRITICAL",
         "title": "Insecure Control UI auth enabled",
@@ -120,6 +130,7 @@ INSECURE_CONFIG_RULES: list[dict] = [
     },
     {
         "key": "gateway.controlUi.dangerouslyDisableDeviceAuth",
+        "profiles": ("openclaw",),
         "check": lambda v: v is True,
         "severity": "CRITICAL",
         "title": "Device authentication completely disabled for Control UI",
@@ -128,14 +139,18 @@ INSECURE_CONFIG_RULES: list[dict] = [
                   "Any webpage can connect and control the agent.",
     },
     {
-        "key": "sandbox.enabled",
-        "check": lambda v: v is False,
+        "key": "agents.defaults.sandbox.mode",
+        "legacy_keys": ("sandbox.enabled",),
+        "profiles": ("openclaw",),
+        "check": lambda v: v is False or (isinstance(v, str) and v.lower() in {"off", "none", "disabled"}),
         "severity": "WARNING",
         "title": "Sandbox disabled",
         "detail": "Agent runs without sandboxing. Commands execute with full user privileges.",
     },
     {
-        "key": "logging.redactSecrets",
+        "key": "logging.redactSensitive",
+        "legacy_keys": ("logging.redactSecrets",),
+        "profiles": ("openclaw",),
         "check": lambda v: v is False,
         "severity": "WARNING",
         "title": "Log secret redaction disabled",
@@ -143,10 +158,35 @@ INSECURE_CONFIG_RULES: list[dict] = [
     },
     {
         "key": "network.mdns.broadcast",
+        "profiles": ("openclaw",),
         "check": lambda v: v is True,
         "severity": "WARNING",
         "title": "Full mDNS broadcast enabled",
         "detail": f"{ACTIVE_PROFILE.display_name} instance is discoverable on the local network via mDNS.",
+    },
+    {
+        "key": "approvals.mode",
+        "profiles": ("hermes",),
+        "check": lambda v: v is False or (isinstance(v, str) and v.lower() == "off"),
+        "severity": "CRITICAL",
+        "title": "Hermes approvals disabled",
+        "detail": "approvals.mode is off. Commands can execute without interactive approval.",
+    },
+    {
+        "key": "security.allow_private_urls",
+        "profiles": ("hermes",),
+        "check": lambda v: v is True,
+        "severity": "WARNING",
+        "title": "Hermes private URL access enabled",
+        "detail": "security.allow_private_urls permits access to private-network URLs.",
+    },
+    {
+        "key": "security.tirith_fail_open",
+        "profiles": ("hermes",),
+        "check": lambda v: v is True,
+        "severity": "WARNING",
+        "title": "Hermes security scanner fails open",
+        "detail": "security.tirith_fail_open allows execution when the scanner is unavailable.",
     },
 ]
 
@@ -264,4 +304,13 @@ IOC_AUTO_REFRESH = (
 # Minimum seconds between feed fetches (the daemon checks each sweep cycle).
 IOC_REFRESH_INTERVAL_SECONDS = int(
     os.environ.get("AI_AGENT_AUDIT_IOC_REFRESH_HOURS", "6") or "6"
+) * 3600
+
+# GitHub repository security advisories are cached locally and refreshed daily.
+ADVISORY_AUTO_REFRESH = (
+    os.environ.get("AI_AGENT_AUDIT_ADVISORY_AUTOREFRESH", "1").lower()
+    not in ("0", "false", "no", "off")
+)
+ADVISORY_REFRESH_INTERVAL_SECONDS = int(
+    os.environ.get("AI_AGENT_AUDIT_ADVISORY_REFRESH_HOURS", "24") or "24"
 ) * 3600

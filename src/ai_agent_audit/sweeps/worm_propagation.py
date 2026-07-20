@@ -7,11 +7,11 @@ propagation indicators, and self-modification patterns.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
 
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import OPENCLAW_CONFIG, OPENCLAW_HOME, OPENCLAW_SKILLS, OPENCLAW_WORKSPACE
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
@@ -62,8 +62,8 @@ class WormPropagationSweep(BaseSweep):
             return
 
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError):
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError:
             return
 
         for key_path, dangerous_value, description in _CONFIG_WORM_INDICATORS:

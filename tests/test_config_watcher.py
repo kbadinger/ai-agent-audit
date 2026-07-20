@@ -3,6 +3,8 @@
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from ai_agent_audit.models import Finding, Severity
 from ai_agent_audit.monitors.config_watcher import ConfigWatcher
@@ -118,3 +120,41 @@ def test_multiple_issues():
     }
     findings = _run_config_check(config)
     assert len(findings) >= 4  # non-loopback, auth disabled, open DM, sandbox off
+
+
+def test_current_openclaw_json5_schema():
+    findings: list[Finding] = []
+    tmp_dir = Path(tempfile.mkdtemp())
+    config_path = tmp_dir / "openclaw.json"
+    config_path.write_text("""
+    {
+      gateway: {auth: {mode: 'none'},},
+      agents: {defaults: {sandbox: {mode: 'off'}}},
+      logging: {redactSensitive: false},
+    }
+    """)
+    ConfigWatcher(findings.append, config_path)._check_config()
+    titles = {finding.title for finding in findings}
+    assert "Authentication disabled" in titles
+    assert "Sandbox disabled" in titles
+    assert "Log secret redaction disabled" in titles
+
+
+def test_current_hermes_yaml_security_rules():
+    findings: list[Finding] = []
+    tmp_dir = Path(tempfile.mkdtemp())
+    config_path = tmp_dir / "config.yaml"
+    config_path.write_text("""
+    approvals:
+      mode: off
+    security:
+      allow_private_urls: true
+      tirith_fail_open: true
+    """)
+    profile = SimpleNamespace(slug="hermes")
+    with patch("ai_agent_audit.monitors.config_watcher.ACTIVE_PROFILE", profile):
+        ConfigWatcher(findings.append, config_path)._check_config()
+    titles = {finding.title for finding in findings}
+    assert "Hermes approvals disabled" in titles
+    assert "Hermes private URL access enabled" in titles
+    assert "Hermes security scanner fails open" in titles

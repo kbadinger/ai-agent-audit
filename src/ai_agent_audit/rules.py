@@ -14,6 +14,7 @@ import logging
 import re
 from pathlib import Path
 
+from .agent_config import AgentConfigError, load_agent_config
 from .config import AUDIT_DIR, OPENCLAW_CONFIG, OPENCLAW_HOME
 from .models import Finding, ModuleResult, Severity
 from .sweeps.base import BaseSweep
@@ -205,8 +206,8 @@ class CustomRulesSweep(BaseSweep):
             return
 
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError):
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError:
             return
 
         value = _get_nested(data, config_key)

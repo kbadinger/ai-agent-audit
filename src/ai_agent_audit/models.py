@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import time
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import Optional
 
 
@@ -14,6 +14,15 @@ class Severity(IntEnum):
     INFO = 0
     WARNING = 1
     CRITICAL = 2
+
+
+class ModuleStatus(str, Enum):
+    """Completeness state for a sweep result."""
+
+    OK = "ok"
+    DEGRADED = "degraded"
+    SKIPPED = "skipped"
+    ERROR = "error"
 
 
 @dataclass
@@ -47,3 +56,5 @@ class ModuleResult:
     findings: list[Finding] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
     duration_seconds: float = 0.0
+    status: ModuleStatus = ModuleStatus.OK
+    message: Optional[str] = None

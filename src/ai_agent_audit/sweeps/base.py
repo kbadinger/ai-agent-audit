@@ -30,9 +30,10 @@ class BaseSweep(ABC):
         result = self.run()
         result.duration_seconds = time.time() - start
         logger.info(
-            "[%s] Completed in %.1fs, %d findings",
+            "[%s] Completed in %.1fs, %d findings (%s)",
             self.name,
             result.duration_seconds,
             len(result.findings),
+            result.status.value,
         )
         return result

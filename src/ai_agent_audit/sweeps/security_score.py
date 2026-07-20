@@ -8,6 +8,16 @@ import os
 import re
 import stat
 
+from ..agent_config import (
+    AgentConfigError,
+    auth_enabled as normalized_auth_enabled,
+    dm_policy_open,
+    extract_mcp_servers,
+    get_nested,
+    load_agent_config,
+    redaction_enabled,
+    sandbox_enabled,
+)
 from ..config import (
     ACTIVE_PROFILE,
     AUDIT_BASELINES,
@@ -22,7 +32,7 @@ from ..config import (
     SUSPICIOUS_PROCESS_PATTERNS,
 )
 from ..ioc import MALICIOUS_SKILL_PATTERNS
-from ..models import Finding, ModuleResult, Severity
+from ..models import Finding, ModuleResult, ModuleStatus, Severity
 from .base import BaseSweep
 
 logger = logging.getLogger(__name__)
@@ -34,15 +44,7 @@ except ImportError:
     HAS_PSUTIL = False
 
 
-def _get_nested(data: dict, dotted_key: str):
-    """Get a value from a nested dict using dotted key like 'a.b.c'."""
-    keys = dotted_key.split(".")
-    current = data
-    for k in keys:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(k)
-    return current
+_get_nested = get_nested
 
 
 def _grade(score: int) -> str:
@@ -64,37 +66,40 @@ class SecurityScoreSweep(BaseSweep):
         findings: list[Finding] = []
         score = 0
         config: dict = {}
-        checks: list[tuple[str, int, bool]] = []  # (name, weight, passed)
+        checks: list[tuple[str, int, bool | None]] = []  # None means visibility unknown
 
         # Load config
         config_valid = False
         if OPENCLAW_CONFIG.exists():
             try:
-                config = json.loads(OPENCLAW_CONFIG.read_text())
+                config = load_agent_config(OPENCLAW_CONFIG)
                 config_valid = True
-            except (json.JSONDecodeError, OSError):
+            except AgentConfigError:
                 pass
 
         # 1. Config exists and is valid (5)
         checks.append(("Config exists and is valid", 5, config_valid))
 
         # 2. Auth enabled (15)
-        auth_enabled = _get_nested(config, "gateway.auth.enabled") is True
-        checks.append(("Authentication enabled", 15, auth_enabled))
+        auth_state = normalized_auth_enabled(config, ACTIVE_PROFILE) if config_valid else None
+        checks.append(("Authentication enabled", 15, auth_state))
 
         # 3. Gateway bound to loopback (15)
-        bind = _get_nested(config, "gateway.bind")
-        bound_loopback = bind in (None, "127.0.0.1", "localhost", "::1", "loopback")
+        bind = _get_nested(config, "gateway.bind") if config_valid else None
+        bound_loopback = (
+            bind in ("127.0.0.1", "localhost", "::1", "loopback")
+            if bind is not None else None
+        )
         checks.append(("Gateway bound to loopback", 15, bound_loopback))
 
         # 4. Sandbox enabled (10)
-        sandbox = _get_nested(config, "sandbox.enabled")
-        sandbox_ok = sandbox is not False  # True or missing = ok
+        sandbox_ok = sandbox_enabled(config, ACTIVE_PROFILE) if config_valid else None
         checks.append(("Sandbox enabled", 10, sandbox_ok))
 
         # 5. Permissions correct (10)
-        perms_ok = True
-        if OPENCLAW_HOME.exists():
+        home_exists = OPENCLAW_HOME.exists()
+        perms_ok: bool | None = True if home_exists else None
+        if home_exists:
             for path, expected in EXPECTED_PERMISSIONS.items():
                 if path.exists():
                     actual = stat.S_IMODE(path.stat().st_mode)
@@ -104,8 +109,8 @@ class SecurityScoreSweep(BaseSweep):
         checks.append(("Permissions correct", 10, perms_ok))
 
         # 6. No world-readable files (10)
-        world_readable = False
-        if OPENCLAW_HOME.exists():
+        world_readable: bool | None = False if home_exists else None
+        if home_exists:
             for dirpath, _, filenames in os.walk(OPENCLAW_HOME):
                 for fname in filenames:
                     fpath = os.path.join(dirpath, fname)
@@ -118,10 +123,14 @@ class SecurityScoreSweep(BaseSweep):
                         continue
                 if world_readable:
                     break
-        checks.append(("No world-readable files", 10, not world_readable))
+        checks.append((
+            "No world-readable files",
+            10,
+            None if world_readable is None else not world_readable,
+        ))
 
         # 7. Credentials hashed/unchanged (5)
-        creds_ok = True
+        creds_ok: bool | None = True if home_exists else None
         creds_baseline = AUDIT_BASELINES / "credential-ages.json"
         if not creds_baseline.exists():
             creds_ok = True  # No baseline yet, first run
@@ -129,14 +138,20 @@ class SecurityScoreSweep(BaseSweep):
 
         # 8. No suspicious processes (10)
         suspicious_procs = False
+        process_visible = HAS_PSUTIL
         if HAS_PSUTIL:
             compiled = [
                 re.compile(p["pattern"]) for p in SUSPICIOUS_PROCESS_PATTERNS
             ]
-            for proc in psutil.process_iter(["pid", "cmdline"]):
+            try:
+                processes = list(psutil.process_iter(["pid", "cmdline"]))
+            except (psutil.Error, OSError):
+                processes = []
+                process_visible = False
+            for proc in processes:
                 try:
                     cmdline = " ".join(proc.info.get("cmdline") or [])
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                except (psutil.Error, OSError, KeyError, TypeError):
                     continue
                 for pat in compiled:
                     if pat.search(cmdline):
@@ -144,10 +159,11 @@ class SecurityScoreSweep(BaseSweep):
                         break
                 if suspicious_procs:
                     break
-        checks.append(("No suspicious processes", 10, not suspicious_procs))
+        checks.append(("No suspicious processes", 10, not suspicious_procs if process_visible else None))
 
         # 9. No unusual network connections (5)
         unusual_net = False
+        network_visible = HAS_PSUTIL
         if HAS_PSUTIL:
             try:
                 for conn in psutil.net_connections(kind="inet"):
@@ -165,13 +181,12 @@ class SecurityScoreSweep(BaseSweep):
                                 break
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             continue
-            except (psutil.AccessDenied, PermissionError):
-                pass  # macOS requires root for net_connections
-        checks.append(("No unusual network connections", 5, not unusual_net))
+            except (psutil.Error, OSError):
+                network_visible = False
+        checks.append(("No unusual network connections", 5, not unusual_net if network_visible else None))
 
         # 10. Log redaction enabled (5)
-        redact = _get_nested(config, "logging.redactSecrets")
-        redact_ok = redact is not False  # True or missing = ok
+        redact_ok = redaction_enabled(config, ACTIVE_PROFILE) if config_valid else None
         checks.append(("Log redaction enabled", 5, redact_ok))
 
         # 11. Extensions unchanged from baseline (10)
@@ -193,12 +208,12 @@ class SecurityScoreSweep(BaseSweep):
         checks.append(("Extensions unchanged from baseline", 10, extensions_ok))
 
         # 12. DM policy not open (10)
-        dm_policy = _get_nested(config, "gateway.auth.allowOpenDM")
-        dm_ok = dm_policy is not True
+        dm_open = dm_policy_open(config) if config_valid else None
+        dm_ok = None if dm_open is None else not dm_open
         checks.append(("DM policy not open", 10, dm_ok))
 
         # 13. Exec approvals secure (5)
-        exec_ok = True
+        exec_ok: bool | None = True if home_exists else None
         if OPENCLAW_EXEC_APPROVALS.exists():
             try:
                 mode = stat.S_IMODE(OPENCLAW_EXEC_APPROVALS.stat().st_mode)
@@ -210,10 +225,13 @@ class SecurityScoreSweep(BaseSweep):
         checks.append(("Exec approvals secure", 5, exec_ok))
 
         # 14. No memory poisoning (5)
-        memory_ok = True
+        memory_ok: bool | None = True if home_exists else None
         compiled_injections = [re.compile(p["pattern"]) for p in INJECTION_PATTERNS]
-        for mem_name in MEMORY_FILES:
-            mem_path = OPENCLAW_WORKSPACE / mem_name
+        memory_paths = [OPENCLAW_WORKSPACE / name for name in MEMORY_FILES] if home_exists else []
+        memories = OPENCLAW_WORKSPACE / "memories"
+        if memories.is_dir():
+            memory_paths.extend(memories.rglob("*.md"))
+        for mem_path in memory_paths:
             if mem_path.exists():
                 try:
                     content = mem_path.read_text(errors="replace")
@@ -228,7 +246,7 @@ class SecurityScoreSweep(BaseSweep):
         checks.append(("No memory poisoning", 5, memory_ok))
 
         # 15. Skills verified (5)
-        skills_ok = True
+        skills_ok: bool | None = True if home_exists else None
         compiled_skill_pats = [re.compile(p) for p in MALICIOUS_SKILL_PATTERNS]
         if OPENCLAW_WORKSPACE.exists():
             try:
@@ -244,18 +262,22 @@ class SecurityScoreSweep(BaseSweep):
         checks.append(("Skills verified", 5, skills_ok))
 
         # 16. MCP servers restricted (5)
-        mcp_ok = True
+        mcp_ok: bool | None = None if not config_valid else True
         if OPENCLAW_MCP_CONFIG.exists():
             try:
-                mcp_data = json.loads(OPENCLAW_MCP_CONFIG.read_text())
+                mcp_data = load_agent_config(OPENCLAW_MCP_CONFIG)
                 if mcp_data.get("enableAllProjectMcpServers") is True:
                     mcp_ok = False
-            except (json.JSONDecodeError, OSError):
-                pass
+                elif extract_mcp_servers(mcp_data):
+                    # Native audit evaluates per-server policy. Presence alone
+                    # is not evidence that every MCP server is restricted.
+                    mcp_ok = None
+            except AgentConfigError:
+                mcp_ok = None
         checks.append(("MCP servers restricted", 5, mcp_ok))
 
         # 17. Memory extraPaths has no path traversal (5)
-        extra_paths_ok = True
+        extra_paths_ok: bool | None = True if config_valid else None
         extra_paths = _get_nested(config, "memory.extraPaths") or []
         if isinstance(extra_paths, list) and OPENCLAW_WORKSPACE.exists():
             workspace = str(OPENCLAW_WORKSPACE.resolve())
@@ -273,25 +295,30 @@ class SecurityScoreSweep(BaseSweep):
 
         # 18. WebSocket origin validated (5)
         gw_port = _get_nested(config, "gateway.port")
-        gw_auth = _get_nested(config, "gateway.auth.enabled")
-        ws_ok = not (gw_port in (None, 3000, 8080) and gw_auth is not True)
+        ws_ok = None if auth_state is None else not (
+            gw_port in (None, 3000, 8080) and auth_state is not True
+        )
         checks.append(("WebSocket origin validated", 5, ws_ok))
 
         # Calculate score
         for name, weight, passed in checks:
-            if passed:
+            if passed is True:
                 score += weight
 
-        grade = _grade(score)
+        unknown_count = sum(1 for _, _, passed in checks if passed is None)
+        grade = "INCOMPLETE" if unknown_count else _grade(score)
 
         # Build detail report
-        detail_lines = [f"Security Score: {score}/140 (Grade: {grade})", ""]
+        completeness = f"; {unknown_count} UNKNOWN" if unknown_count else ""
+        detail_lines = [f"Security Score: {score}/140 (Grade: {grade}{completeness})", ""]
         for name, weight, passed in checks:
-            status = "PASS" if passed else "FAIL"
+            status = "UNKNOWN" if passed is None else ("PASS" if passed else "FAIL")
             detail_lines.append(f"  [{status}] {name} (weight: {weight})")
 
         severity = Severity.INFO
-        if grade in ("D", "F"):
+        if grade == "INCOMPLETE":
+            severity = Severity.WARNING
+        elif grade in ("D", "F"):
             severity = Severity.CRITICAL
         elif grade == "C":
             severity = Severity.WARNING
@@ -303,4 +330,12 @@ class SecurityScoreSweep(BaseSweep):
             detail="\n".join(detail_lines),
         ))
 
-        return ModuleResult(module_name=self.name, findings=findings)
+        return ModuleResult(
+            module_name=self.name,
+            findings=findings,
+            status=ModuleStatus.DEGRADED if unknown_count else ModuleStatus.OK,
+            message=(
+                f"{unknown_count} score checks lacked sufficient visibility or configuration evidence"
+                if unknown_count else None
+            ),
+        )

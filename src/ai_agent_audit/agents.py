@@ -38,6 +38,16 @@ class AgentProfile:
     version_command: tuple[str, ...] = ()
     # Skills directory, relative to home (OpenClaw uses workspace/skills; Hermes uses skills).
     skills_relpath: str = "workspace/skills"
+    extensions_relpath: str = "extensions"
+    # Workspace/memory root, relative to home. Hermes keeps SOUL.md at its home root.
+    workspace_relpath: str = "workspace"
+    # Modern agents embed MCP settings in their main config. A filename is only
+    # needed for legacy/separate layouts.
+    mcp_config_filename: Optional[str] = None
+    # Native audit/fix commands used by the adapter and remediation engine.
+    native_audit_command: tuple[str, ...] = ()
+    native_fix_command: tuple[str, ...] = ()
+    sensitive_file_relpaths: tuple[str, ...] = ()
     log_dir_override: Optional[Path] = None
 
     @property
@@ -58,11 +68,11 @@ class AgentProfile:
 
     @property
     def extensions_path(self) -> Path:
-        return self.home / "extensions"
+        return self.home / self.extensions_relpath
 
     @property
     def workspace_path(self) -> Path:
-        return self.home / "workspace"
+        return self.home / self.workspace_relpath
 
     @property
     def skills_path(self) -> Path:
@@ -74,11 +84,17 @@ class AgentProfile:
 
     @property
     def mcp_config_path(self) -> Path:
-        return self.home / "mcp.json"
+        if self.mcp_config_filename:
+            return self.home / self.mcp_config_filename
+        return self.config_path
 
     @property
     def identity_path(self) -> Path:
         return self.home / "identity"
+
+    @property
+    def sensitive_files(self) -> tuple[Path, ...]:
+        return tuple(self.home / relpath for relpath in self.sensitive_file_relpaths)
 
     @property
     def audit_dir(self) -> Path:
@@ -101,6 +117,8 @@ def _openclaw_profile() -> AgentProfile:
         vscode_extension_patterns=("clawdbot", "openclaw", "moltbot"),
         version_command=("openclaw", "--version"),
         skills_relpath="workspace/skills",
+        native_audit_command=("openclaw", "security", "audit", "--json"),
+        native_fix_command=("openclaw", "security", "audit", "--fix", "--json"),
     )
 
 
@@ -110,12 +128,16 @@ def _hermes_profile() -> AgentProfile:
         slug="hermes",
         display_name="Hermes",
         home=Path(home_env) if home_env else (Path.home() / ".hermes"),
-        config_filename="hermes.json",
+        config_filename="config.yaml",
         process_keywords=("hermes",),
         persistence_keywords=("hermes", "hermesd", "hermes-agent"),
         vscode_extension_patterns=("hermes", "hermesd", "hermesbot"),
         version_command=("hermes", "--version"),
         skills_relpath="skills",
+        extensions_relpath="plugins",
+        workspace_relpath=".",
+        native_audit_command=("hermes", "audit", "--json"),
+        sensitive_file_relpaths=("auth.json",),
     )
 
 

@@ -8,7 +8,9 @@ import platform
 import shutil
 from pathlib import Path
 
+from .agent_config import AgentConfigError, load_agent_config, mcp_config_present
 from .config import (
+    ACTIVE_PROFILE,
     AUDIT_BASELINES,
     OPENCLAW_CONFIG,
     OPENCLAW_MCP_CONFIG,
@@ -30,9 +32,10 @@ class EnvironmentProfiler:
     def refresh(self) -> None:
         """Re-scan the environment and update the profile."""
         self._profile = {
+            "agent": ACTIVE_PROFILE.slug,
             "os": platform.system(),
             "has_docker": shutil.which("docker") is not None,
-            "has_mcp_config": OPENCLAW_MCP_CONFIG.exists(),
+            "has_mcp_config": self._check_mcp_config(),
             "has_skills": OPENCLAW_SKILLS.exists(),
             "skill_count": self._count_skills(),
             "has_config": OPENCLAW_CONFIG.exists(),
@@ -53,9 +56,18 @@ class EnvironmentProfiler:
         try:
             if not OPENCLAW_CONFIG.exists():
                 return False
-            config = json.loads(OPENCLAW_CONFIG.read_text())
+            config = load_agent_config(OPENCLAW_CONFIG)
             return "gateway" in config
-        except (json.JSONDecodeError, OSError):
+        except AgentConfigError:
+            return False
+
+    def _check_mcp_config(self) -> bool:
+        """Check current embedded and legacy MCP configuration layouts."""
+        try:
+            if not OPENCLAW_MCP_CONFIG.exists():
+                return False
+            return mcp_config_present(load_agent_config(OPENCLAW_MCP_CONFIG))
+        except AgentConfigError:
             return False
 
     def _save(self) -> None:
@@ -70,9 +82,26 @@ class EnvironmentProfiler:
 
         Checks not in the relevance map are always relevant (conservative).
         """
+        agent = self._profile.get("agent")
+        openclaw_only = {
+            "agent_comm_audit",
+            "dm_policy_audit",
+            "exec_approvals_audit",
+            "node_cve_check",
+            "reverse_proxy_audit",
+            "safebins_bypass",
+            "tool_policy_audit",
+            "websocket_security",
+        }
+        if check_name in openclaw_only and agent != "openclaw":
+            return False
+        if check_name == "hermes_hardening" and agent != "hermes":
+            return False
+
         relevance = {
             "docker_security": self._profile.get("has_docker", False),
             "mcp_security": self._profile.get("has_mcp_config", False),
+            "mcp_rugpull": self._profile.get("has_mcp_config", False),
             "skill_scanner": self._profile.get("has_skills", False),
             "websocket_security": self._profile.get("has_gateway", False),
             "reverse_proxy_audit": self._profile.get("has_gateway", False),

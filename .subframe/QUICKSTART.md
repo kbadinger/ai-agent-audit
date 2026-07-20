@@ -1,30 +1,39 @@
 <!-- SUBFRAME AUTO-GENERATED FILE -->
 <!-- Purpose: Quick onboarding guide for developers and AI assistants -->
 <!-- For Claude: Read this FIRST to quickly understand how to work with this project. Contains setup instructions, common commands, and key files to know. -->
-<!-- Last Updated: 2026-03-27 -->
+<!-- Last Updated: 2026-07-19 -->
 
 # ai-agent-audit - Quick Start Guide
 
 ## Setup
 
 ```bash
-# Clone and install
+# Clone and create an isolated development environment
 git clone <repo-url>
 cd ai-agent-audit
-npm install  # or appropriate package manager
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 ```
 
 ## Common Commands
 
 ```bash
-# Development
-npm run dev
+# One-shot scan
+ai-agent-audit sweep
 
-# Build
-npm run build
+# Strict scan for CI/automation
+ai-agent-audit sweep --fail-on degraded
 
 # Test
-npm test
+pytest tests/ -q
+
+# Coverage regression check
+coverage run -m pytest tests/ -q
+coverage report
+
+# Critical lint checks used by CI
+ruff check --select E9,F63,F7,F82 .
 ```
 
 ## Key Files
@@ -53,8 +62,10 @@ ai-agent-audit/
 │   └── docs-internal/      # Internal documentation
 ├── AGENTS.md               # AI instructions (tool-agnostic)
 ├── CLAUDE.md               # Claude Code instructions
-├── src/                    # Source code
-└── ...
+├── src/ai_agent_audit/     # Python package
+├── tests/                  # Pytest suite
+├── pyproject.toml          # Package, dependencies, and tooling
+└── README.md               # User-facing documentation
 ```
 
 ## For AI Assistants (Claude)
@@ -67,4 +78,7 @@ ai-agent-audit/
 
 ## Quick Context
 
-*Add a brief summary of what this project does and its current state here*
+Python 3.10+ security audit daemon for OpenClaw and Hermes. Version 0.4.0
+parses current OpenClaw JSON5 and Hermes YAML, combines native product audits
+with independent monitors/sweeps, reports scan completeness explicitly, and
+exports findings in seven automation-friendly formats.

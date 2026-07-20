@@ -9,6 +9,9 @@ import time
 from typing import Optional
 
 from .config import (
+    ACTIVE_PROFILE,
+    ADVISORY_AUTO_REFRESH,
+    ADVISORY_REFRESH_INTERVAL_SECONDS,
     DEFAULT_SWEEP_INTERVAL_SECONDS,
     IOC_AUTO_REFRESH,
     IOC_REFRESH_INTERVAL_SECONDS,
@@ -18,7 +21,7 @@ from .db import FindingsDB
 from .ioc import load_ioc_matches, load_custom_iocs, save_ioc_matches
 from .learner import PrecisionTracker
 from .mappings import enrich
-from .models import Finding, ModuleResult
+from .models import Finding, ModuleResult, ModuleStatus
 from .monitors.base import BaseMonitor
 from .profile import EnvironmentProfiler
 from .sweeps.base import BaseSweep
@@ -63,6 +66,10 @@ class AuditEngine:
         enrich(finding)
         finding.confidence = self.tracker.calibrate(finding)
         self.db.insert(finding)
+        self._dispatch_alert(finding)
+
+    def _dispatch_alert(self, finding: Finding) -> None:
+        """Deliver a sufficiently confident finding to the configured alerter."""
         if callable(self._on_finding_extra) and finding.confidence >= self.ALERT_CONFIDENCE_THRESHOLD:
             try:
                 self._on_finding_extra(finding)
@@ -101,13 +108,45 @@ class AuditEngine:
         except Exception:
             logger.warning("IOC auto-refresh error", exc_info=True)
 
+    def _maybe_refresh_advisories(self) -> None:
+        """Refresh the active agent's GitHub advisory cache when due."""
+        if not ADVISORY_AUTO_REFRESH:
+            return
+        stamp = AUDIT_BASELINES / "advisory-refresh.json"
+        now = time.time()
+        try:
+            last = float(json.loads(stamp.read_text()).get("last", 0.0)) if stamp.exists() else 0.0
+        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+            last = 0.0
+        if now - last < ADVISORY_REFRESH_INTERVAL_SECONDS:
+            return
+        try:
+            from .advisory_catalog import AdvisoryCatalogUpdater
+
+            stats = AdvisoryCatalogUpdater().update(ACTIVE_PROFILE.slug)
+            if "error" in stats:
+                logger.warning("Advisory catalog refresh failed: %s", stats["error"])
+                return
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(json.dumps({"last": now}))
+            logger.info("Advisory catalog refreshed: %s", stats)
+        except Exception:
+            logger.warning("Advisory catalog auto-refresh error", exc_info=True)
+
     def run_all_sweeps(self) -> list[ModuleResult]:
         """Run all registered sweeps and store results."""
         self._maybe_refresh_iocs()
-        results = []
+        self._maybe_refresh_advisories()
+        self.profiler.refresh()
+        results: list[ModuleResult] = []
         for sweep in self._sweeps:
             if not self.profiler.is_relevant(sweep.name):
                 logger.debug("Skipping irrelevant sweep: %s", sweep.name)
+                results.append(ModuleResult(
+                    module_name=sweep.name,
+                    status=ModuleStatus.SKIPPED,
+                    message="Not relevant to the detected environment",
+                ))
                 continue
             try:
                 result = sweep.execute()
@@ -115,9 +154,21 @@ class AuditEngine:
                     enrich(finding)
                     finding.confidence = self.tracker.calibrate(finding)
                 self.db.insert_many(result.findings)
+                if result.status == ModuleStatus.OK:
+                    self.db.resolve_stale(
+                        result.module_name,
+                        {finding.dedup_hash for finding in result.findings},
+                    )
+                for finding in result.findings:
+                    self._dispatch_alert(finding)
                 results.append(result)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Sweep %s failed", sweep.name)
+                results.append(ModuleResult(
+                    module_name=sweep.name,
+                    status=ModuleStatus.ERROR,
+                    message=f"{type(exc).__name__}: {exc}",
+                ))
         # Refresh learning systems after each sweep cycle
         self.tracker.refresh()
         save_ioc_matches()
@@ -215,6 +266,7 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
     from .sweeps.worm_propagation import WormPropagationSweep
     from .sweeps.agent_version_check import AgentVersionCheckSweep
     from .sweeps.hermes_hardening import HermesHardeningSweep
+    from .sweeps.native_security_audit import NativeSecurityAuditSweep
     from .rules import CustomRulesSweep
     from .alerting import Alerter
 
@@ -240,6 +292,7 @@ def build_default_engine(db: Optional[FindingsDB] = None) -> AuditEngine:
                 SafeBinsBypassSweep, MCPRugPullSweep,
                 UnicodeInjectionSweep, WormPropagationSweep,
                 AgentVersionCheckSweep, HermesHardeningSweep,
+                NativeSecurityAuditSweep,
                 CustomRulesSweep]:
         engine.register_sweep(cls())
 

@@ -1,8 +1,9 @@
 # ai-agent-audit
 
 Security audit daemon for local AI agent installations. Ships with built-in
-profiles for [OpenClaw](https://github.com/openclaw) and Hermes, and adding a
-new agent is a single dataclass entry away. Runs 7 always-on monitors and 27
+profiles for [OpenClaw](https://github.com/openclaw) and Hermes, with a small
+adapter boundary for each product's configuration and native audit. Runs 7
+always-on monitors and 28
 periodic security sweeps with self-learning confidence calibration, produces
 reports in 7 formats (SARIF, JSONL, CSV, ATT&CK Navigator, STIX 2.1, CycloneDX
 SBOM), and optionally auto-remediates common issues.
@@ -12,7 +13,7 @@ SBOM), and optionally auto-remediates common issues.
 | Slug | Display name | Home (default) | Config file | Override env |
 |------|--------------|----------------|-------------|--------------|
 | `openclaw` | OpenClaw | `~/.openclaw/` | `openclaw.json` | `OPENCLAW_HOME` |
-| `hermes`   | Hermes   | `~/.hermes/`   | `hermes.json`   | `HERMES_HOME`   |
+| `hermes`   | Hermes   | `~/.hermes/`   | `config.yaml`   | `HERMES_HOME`   |
 
 The auditor auto-detects which agent is installed and picks that profile.
 Force a profile with `--agent {openclaw,hermes}` or by setting
@@ -39,10 +40,9 @@ to hundreds of thousands of developer machines. Recent findings:
 Hermes (NousResearch) has had its own run of disclosures — CVE-2026-9368
 (`code_execution_tool`), CVE-2026-10548 (credential-pool auth bypass), and a
 cluster of default-posture issues (`--yolo` mode, unset `HERMES_WRITE_SAFE_ROOT`,
-container approval bypass, `setup.commands` skill injection). Hermes ships the
-same gateway/sandbox/skill schema, so the shared monitors and sweeps apply once
-the profile abstraction tells them where to look, and dedicated Hermes checks
-cover the rest.
+container approval bypass, `setup.commands` skill injection). OpenClaw JSON5
+and Hermes YAML are parsed through product-specific adapters, with native audit
+output normalized into the shared finding model.
 
 ## Installation
 
@@ -52,13 +52,17 @@ cd ai-agent-audit
 pip install .
 ```
 
-Requires **Python 3.10+**. Three dependencies: `watchdog`, `psutil`, `jinja2`.
+Requires **Python 3.10+**. Runtime dependencies: `watchdog`, `psutil`, `jinja2`,
+`json5`, and `PyYAML`.
 
 ## Quick Start
 
 ```bash
 # Run a one-shot security scan (auto-detects OpenClaw or Hermes)
 ai-agent-audit sweep
+
+# Treat incomplete OS visibility as a failing scan
+ai-agent-audit sweep --fail-on degraded
 
 # Force a specific agent profile
 ai-agent-audit --agent hermes sweep
@@ -93,7 +97,7 @@ Run continuously in the background daemon:
 | **session_analyzer** | Session transcripts: prompt injection, exfiltration, encoding bypasses, tool abuse, social engineering patterns |
 | **memory_poisoning_monitor** | SOUL.md, MEMORY.md, IDENTITY.md for injection payloads, promptware/C2-registration instructions, + path traversal in extraPaths |
 
-### Periodic Deep Sweeps (27)
+### Periodic Deep Sweeps (28)
 
 Run hourly (configurable) or on-demand via `ai-agent-audit sweep`:
 
@@ -114,8 +118,9 @@ Run hourly (configurable) or on-demand via `ai-agent-audit sweep`:
 | **docker_security** | Root containers, Docker socket mounts, privileged mode |
 | **reverse_proxy_audit** | Localhost trust bypass, Tailscale auth, missing trustedProxies |
 | **node_cve_check** | CVE-2026-21636 Node.js permission model bypass |
-| **agent_version_check** | Version-gated CVEs: OpenClaw "Claw Chain" (44112/44113/44115/44118) + Hermes core (9368, 10548) |
+| **agent_version_check** | Version-gated CVE/GHSA catalog with bundled data and daily GitHub advisory refresh |
 | **hermes_hardening** | Hermes default-posture: unset `HERMES_WRITE_SAFE_ROOT`, container approval bypass, `--yolo` mode, skill `setup.commands` |
+| **native_security_audit** | Normalizes structured `openclaw security audit --json` or `hermes audit --json` findings |
 | **vscode_trojan_check** | Fake agent VS Code extensions (per profile patterns) |
 | **behavioral_baseline** | Process/network/file count anomaly detection (rolling 7-snapshot, mean +/- 2 sigma) |
 | **credential_rotation** | Tracks credential ages, alerts on stale (>90d) or very stale (>180d) |
@@ -133,7 +138,7 @@ Every finding carries a confidence score (0.0-1.0) that calibrates automatically
 
 1. **Initial enrichment** — findings are tagged with baseline confidence from 130+ mapping entries
 2. **Triage feedback** — when you mark findings as true/false positives, the `PrecisionTracker` adjusts future confidence for that finding type
-3. **IOC aging** — IOCs that haven't matched in 90+ days get reduced confidence
+3. **IOC lifecycle** — feed snapshots replace withdrawn indicators; source timestamps and confidence age stale IOCs
 4. **Environment profiling** — sweeps irrelevant to your setup (no Docker? skip docker_security) are automatically skipped
 5. **Alerting gates** — findings below confidence 0.2 are stored but not alerted on
 
@@ -216,10 +221,14 @@ third agent:
 
 1. Add a `_my_agent_profile()` helper following the OpenClaw/Hermes pattern.
 2. Register it in `all_profiles()` and `SUPPORTED_PROFILES`.
-3. (Optional) Add the new slug to `--agent` choices in `cli.py`.
+3. Add its config format and normalized security semantics to
+   `agent_config.py` when they differ from the existing adapters.
+4. Add the new slug to `--agent` choices in `cli.py` and profile-aware
+   relevance rules in `profile.py`.
 
-Every monitor, sweep, and exporter that already reads from `ACTIVE_PROFILE`
-or the legacy `OPENCLAW_*` constants will immediately apply to the new agent.
+Filesystem/process monitors and exporters apply through `ACTIVE_PROFILE`.
+Schema-specific sweeps should only be enabled when the new product actually
+supports the fields they inspect.
 
 ## CLI Reference
 
@@ -229,7 +238,7 @@ ai-agent-audit [--agent {openclaw,hermes,auto}] <command>
   start                  Start background daemon
   stop                   Stop daemon
   status                 Show active profile + daemon PID + finding summary
-  sweep                  Run all 27 sweeps in foreground
+  sweep [--fail-on error|degraded]  Run all 28 sweeps with explicit health status
   triage [ID] [--confirm|--fp|--dismiss]  Triage findings
   export [-f FORMAT] [-o FILE]            Export findings (7 formats)
   report [--open]        Generate HTML report
@@ -242,7 +251,7 @@ ai-agent-audit [--agent {openclaw,hermes,auto}] <command>
 `ai-agent-audit fix` performs three types of fixes against the active agent:
 
 - **Permission tightening**: Sets agent home to 700, config/credential files to 600 (only tightens, never loosens)
-- **Config hardening**: Binds gateway to 127.0.0.1, enables auth, disables open DM, enables sandbox
+- **Config hardening**: Delegates to the installed agent's schema-aware native fixer after making a validated backup; unsupported agents are never rewritten
 - **Skill quarantine**: Moves skills matching known malicious patterns to a quarantine directory
 
 Always run with `--dry-run` first.
@@ -316,7 +325,7 @@ ai-agent-audit
   |
   +-- AuditEngine (orchestrator)
   |     |-- 7 Monitors (always-on, threaded, callback-based)
-  |     |-- 25 Sweeps (periodic, run-and-return)
+  |     |-- 28 Sweeps (periodic, run-and-return, explicit health status)
   |     |-- PrecisionTracker (self-learning confidence calibration)
   |     |-- EnvironmentProfiler (skip irrelevant sweeps)
   |     +-- Alerter (5 backends, confidence-gated)
@@ -327,7 +336,7 @@ ai-agent-audit
   |
   +-- ReportGenerator (Jinja2 HTML, dark theme, 30-day trends)
   |
-  +-- RemediationEngine (permissions, config, skill quarantine)
+  +-- RemediationEngine (permissions, native config fixer + backup, skill quarantine)
   |
   +-- IOC Database (hardcoded + custom feeds, aging)
   |
@@ -337,9 +346,9 @@ ai-agent-audit
 ## Development
 
 ```bash
-pip install -e .
-pip install pytest
-pytest tests/ -v   # 233 tests
+pip install -e ".[dev]"
+pytest tests/ -v
+coverage run -m pytest tests/ -q && coverage report
 ```
 
 ## Platform Support

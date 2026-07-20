@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import ACTIVE_PROFILE, OPENCLAW_CONFIG
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
@@ -28,8 +28,8 @@ class DMPolicyAuditSweep(BaseSweep):
             return ModuleResult(module_name=self.name, findings=findings)
 
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError as exc:
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,
@@ -102,3 +102,9 @@ class DMPolicyAuditSweep(BaseSweep):
                 detail="Channel is enabled but has no allowFrom or dmPolicy configured.",
                 path=str(OPENCLAW_CONFIG),
             ))
+
+        accounts = cfg.get("accounts")
+        if isinstance(accounts, dict):
+            for account_name, account_cfg in accounts.items():
+                if isinstance(account_cfg, dict):
+                    self._check_channel(f"{name}/{account_name}", account_cfg, findings)

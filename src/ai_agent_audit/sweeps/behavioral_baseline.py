@@ -14,7 +14,7 @@ from ..config import (
     OPENCLAW_EXTENSIONS,
     OPENCLAW_SKILLS,
 )
-from ..models import Finding, ModuleResult, Severity
+from ..models import Finding, ModuleResult, ModuleStatus, Severity
 from .base import BaseSweep
 
 logger = logging.getLogger(__name__)
@@ -56,9 +56,15 @@ def _gather_current_state() -> dict:
     process_count = 0
     connection_count = 0
     listening_ports: list[int] = []
+    process_visible = HAS_PSUTIL
 
     if HAS_PSUTIL:
-        for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            processes = list(psutil.process_iter(["pid", "cmdline"]))
+        except (psutil.Error, OSError):
+            processes = []
+            process_visible = False
+        for proc in processes:
             try:
                 cmdline = " ".join(proc.info.get("cmdline") or []).lower()
             except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -78,6 +84,7 @@ def _gather_current_state() -> dict:
         "process_count": process_count,
         "connection_count": connection_count,
         "listening_ports": sorted(set(listening_ports)),
+        "process_visible": process_visible,
         "extension_file_count": _count_files(OPENCLAW_EXTENSIONS),
         "credential_file_count": _count_files(OPENCLAW_CREDENTIALS),
         "skill_count": _count_dirs(OPENCLAW_SKILLS),
@@ -158,19 +165,25 @@ class BehavioralBaselineSweep(BaseSweep):
                     f"{current['skill_count']} skills"
                 ),
             ))
-            return ModuleResult(module_name=self.name, findings=findings)
+            return ModuleResult(
+                module_name=self.name,
+                findings=findings,
+                status=ModuleStatus.OK if current["process_visible"] else ModuleStatus.DEGRADED,
+                message=None if current["process_visible"] else "Process visibility unavailable",
+            )
 
         anomaly_found = False
 
         # Extract historical values for each metric
-        hist_procs = [s.get("process_count", 0) for s in window]
-        hist_conns = [s.get("connection_count", 0) for s in window]
+        visible_history = [s for s in window if s.get("process_visible", True)]
+        hist_procs = [s.get("process_count", 0) for s in visible_history]
+        hist_conns = [s.get("connection_count", 0) for s in visible_history]
         hist_ext = [s.get("extension_file_count", 0) for s in window]
         hist_creds = [s.get("credential_file_count", 0) for s in window]
         hist_skills = [s.get("skill_count", 0) for s in window]
 
         # Process count anomaly (mean + 2σ)
-        if hist_procs and _is_anomaly(current["process_count"], hist_procs):
+        if current["process_visible"] and hist_procs and _is_anomaly(current["process_count"], hist_procs):
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
@@ -187,7 +200,7 @@ class BehavioralBaselineSweep(BaseSweep):
         for s in window:
             all_hist_ports.update(s.get("listening_ports", []))
         new_ports = set(current["listening_ports"]) - all_hist_ports
-        if new_ports:
+        if current["process_visible"] and new_ports:
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
@@ -230,7 +243,7 @@ class BehavioralBaselineSweep(BaseSweep):
             ))
 
         # Connection count anomaly
-        if hist_conns and _is_anomaly(current["connection_count"], hist_conns):
+        if current["process_visible"] and hist_conns and _is_anomaly(current["connection_count"], hist_conns):
             anomaly_found = True
             findings.append(Finding(
                 module=self.name,
@@ -258,4 +271,9 @@ class BehavioralBaselineSweep(BaseSweep):
         window.append(current)
         _save_window(window)
 
-        return ModuleResult(module_name=self.name, findings=findings)
+        return ModuleResult(
+            module_name=self.name,
+            findings=findings,
+            status=ModuleStatus.OK if current["process_visible"] else ModuleStatus.DEGRADED,
+            message=None if current["process_visible"] else "Process visibility unavailable",
+        )

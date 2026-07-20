@@ -1,0 +1,19 @@
+{
+  "updated_at": "2026-07-19T00:00:00Z",
+  "advisories": {
+    "openclaw": [
+      {"id": "CVE-2026-44112", "fixed": "2026.4.22", "title": "Claw Chain: TOCTOU sandbox write-escape", "severity": "critical"},
+      {"id": "CVE-2026-44113", "fixed": "2026.4.22", "title": "Claw Chain: TOCTOU sandbox read-escape", "severity": "warning"},
+      {"id": "CVE-2026-44115", "fixed": "2026.4.22", "title": "Claw Chain: heredoc command-validation bypass", "severity": "critical"},
+      {"id": "CVE-2026-44118", "fixed": "2026.4.22", "title": "Claw Chain: loopback senderIsOwner trust bypass", "severity": "warning"},
+      {"id": "GHSA-jhfx-v2j8-x3m6", "fixed": "2026.6.8", "title": "OpenClaw security advisory", "severity": "critical"},
+      {"id": "GHSA-m38g-vpwj-mpg9", "fixed": "2026.6.9", "title": "OpenClaw security advisory", "severity": "critical"},
+      {"id": "GHSA-3fp5-v549-9v66", "fixed": "2026.6.9", "title": "Exec approval bypass", "severity": "critical"},
+      {"id": "GHSA-7vrr-rp4x-4g76", "introduced": "2026.5.20", "fixed": "2026.6.9", "title": "Plugin install non-owner persistence", "severity": "critical"}
+    ],
+    "hermes": [
+      {"id": "CVE-2026-9368", "fixed": "2026.4.17", "title": "Code execution in code_execution_tool.execute_code", "severity": "critical"},
+      {"id": "CVE-2026-10548", "fixed": "2026.4.24", "title": "Credential-pool sync improper authentication", "severity": "critical"}
+    ]
+  }
+}

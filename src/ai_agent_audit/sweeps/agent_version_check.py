@@ -9,38 +9,17 @@ positives.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import subprocess
 
+from ..advisory_catalog import load_catalog
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import ACTIVE_PROFILE, AGENT_CONFIG
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
 
 logger = logging.getLogger(__name__)
-
-# Per-agent CVEs keyed by slug. `fixed` is the first non-vulnerable version
-# (date scheme, e.g. (2026, 4, 22)). Installed version < fixed => vulnerable.
-KNOWN_CVES: dict[str, list[dict]] = {
-    "openclaw": [
-        {"fixed": (2026, 4, 22), "cve": "CVE-2026-44112",
-         "title": "Claw Chain: TOCTOU sandbox write-escape", "severity": Severity.CRITICAL},
-        {"fixed": (2026, 4, 22), "cve": "CVE-2026-44113",
-         "title": "Claw Chain: TOCTOU sandbox read-escape", "severity": Severity.WARNING},
-        {"fixed": (2026, 4, 22), "cve": "CVE-2026-44115",
-         "title": "Claw Chain: heredoc command-validation bypass", "severity": Severity.CRITICAL},
-        {"fixed": (2026, 4, 22), "cve": "CVE-2026-44118",
-         "title": "Claw Chain: loopback senderIsOwner trust bypass", "severity": Severity.WARNING},
-    ],
-    "hermes": [
-        {"fixed": (2026, 4, 17), "cve": "CVE-2026-9368",
-         "title": "Code execution in code_execution_tool.execute_code", "severity": Severity.CRITICAL},
-        {"fixed": (2026, 4, 24), "cve": "CVE-2026-10548",
-         "title": "Credential-pool sync improper authentication", "severity": Severity.CRITICAL},
-    ],
-}
-
 
 def _parse_version(version_str: str) -> tuple[int, ...] | None:
     """Parse 'v2026.4.22' / '2026.4.22' into a tuple of ints."""
@@ -50,6 +29,30 @@ def _parse_version(version_str: str) -> tuple[int, ...] | None:
     return tuple(int(n) for n in nums)
 
 
+def _parse_date_version(version_str: str) -> tuple[int, ...] | None:
+    """Prefer a year-like release tag from composite version output."""
+    match = re.search(r"(20\d{2}(?:\.\d+){2,3})", version_str)
+    return _parse_version(match.group(1)) if match else None
+
+
+def _parse_semver_version(version_str: str) -> tuple[int, ...] | None:
+    """Extract a semantic version, including from composite release output."""
+    match = re.search(r"(?<!\d)(\d+\.\d+\.\d+)(?![.\d])", version_str)
+    if not match:
+        return None
+    parsed = _parse_version(match.group(1))
+    return parsed if parsed and parsed[0] < 2000 else None
+
+
+def _severity(value: str) -> Severity:
+    normalized = str(value).lower()
+    if normalized in {"critical", "high"}:
+        return Severity.CRITICAL
+    if normalized in {"warning", "medium", "moderate"}:
+        return Severity.WARNING
+    return Severity.INFO
+
+
 class AgentVersionCheckSweep(BaseSweep):
     name = "agent_version_check"
 
@@ -57,8 +60,8 @@ class AgentVersionCheckSweep(BaseSweep):
         findings: list[Finding] = []
         slug = ACTIVE_PROFILE.slug
         display = ACTIVE_PROFILE.display_name
-        cves = KNOWN_CVES.get(slug, [])
-        if not cves:
+        advisories = load_catalog(slug)
+        if not advisories:
             findings.append(Finding(
                 module=self.name, severity=Severity.INFO,
                 title=f"No version CVEs tracked for {display}",
@@ -79,8 +82,9 @@ class AgentVersionCheckSweep(BaseSweep):
             ))
             return ModuleResult(module_name=self.name, findings=findings)
 
-        version = _parse_version(version_str)
-        if version is None:
+        date_version = _parse_date_version(version_str)
+        semver_version = _parse_semver_version(version_str)
+        if date_version is None and semver_version is None:
             findings.append(Finding(
                 module=self.name, severity=Severity.INFO,
                 title=f"Unparseable {display} version",
@@ -88,36 +92,42 @@ class AgentVersionCheckSweep(BaseSweep):
             ))
             return ModuleResult(module_name=self.name, findings=findings)
 
-        # Only compare date-scheme installs (year-like major) against these
-        # date-scheme CVEs. A semver install (major < 2000) is a different
-        # component; comparing would be meaningless.
-        if version[0] < 2000:
-            findings.append(Finding(
-                module=self.name, severity=Severity.INFO,
-                title=f"{display} version {version_str} uses a non-date scheme",
-                detail="Date-scheme CVE comparison skipped for this version string.",
-            ))
-            return ModuleResult(module_name=self.name, findings=findings)
-
         path = str(AGENT_CONFIG) if AGENT_CONFIG.exists() else None
-        for cve in cves:
-            if version < cve["fixed"]:
-                fixed = ".".join(str(v) for v in cve["fixed"])
+        comparable = 0
+        for advisory in advisories:
+            fixed = _parse_version(str(advisory.get("fixed") or ""))
+            introduced = _parse_version(str(advisory.get("introduced") or ""))
+            if not fixed:
+                continue
+            version = date_version if fixed[0] >= 2000 else semver_version
+            if version is None:
+                continue
+            comparable += 1
+            if (introduced is None or version >= introduced) and version < fixed:
+                fixed_text = ".".join(str(v) for v in fixed)
+                advisory_id = str(advisory["id"])
                 findings.append(Finding(
-                    module=self.name, severity=cve["severity"],
-                    title=f"{cve['cve']}: {cve['title']}",
+                    module=self.name, severity=_severity(str(advisory.get("severity", "warning"))),
+                    title=f"{advisory_id}: {advisory.get('title', 'Security advisory')}",
                     detail=(
-                        f"{display} {version_str} is vulnerable to {cve['cve']}. "
-                        f"Upgrade to >= {fixed}."
+                        f"{display} {version_str} is in the affected range for {advisory_id}. "
+                        f"Upgrade to >= {fixed_text}."
                     ),
                     path=path,
                 ))
 
-        if not findings:
+        if not findings and comparable:
             findings.append(Finding(
                 module=self.name, severity=Severity.INFO,
                 title=f"{display} {version_str}: no known version CVEs",
                 detail=f"{display} {version_str} is at or above all tracked fix versions.",
+            ))
+        elif not findings:
+            findings.append(Finding(
+                module=self.name,
+                severity=Severity.INFO,
+                title=f"{display} version {version_str} has no comparable advisories",
+                detail="Tracked advisories use a different version scheme than this installation.",
             ))
 
         return ModuleResult(module_name=self.name, findings=findings)
@@ -126,11 +136,11 @@ class AgentVersionCheckSweep(BaseSweep):
         """Resolve the installed version from config, then the version command."""
         if AGENT_CONFIG.exists():
             try:
-                data = json.loads(AGENT_CONFIG.read_text())
+                data = load_agent_config(AGENT_CONFIG)
                 value = data.get("version")
                 if isinstance(value, str) and value.strip():
                     return value.strip()
-            except (json.JSONDecodeError, OSError):
+            except AgentConfigError:
                 pass
 
         cmd = ACTIVE_PROFILE.version_command

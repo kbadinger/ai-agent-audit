@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
 
+from ..agent_config import AgentConfigError, extract_mcp_servers, load_agent_config
 from ..config import INJECTION_PATTERNS, OPENCLAW_MCP_CONFIG
 from ..ioc import C2_IPS, MALICIOUS_DOMAINS, ABUSED_SERVICES, record_ioc_match
 from ..models import Finding, ModuleResult, Severity
@@ -31,8 +31,8 @@ class MCPSecuritySweep(BaseSweep):
             return ModuleResult(module_name=self.name, findings=findings)
 
         try:
-            data = json.loads(OPENCLAW_MCP_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            data = load_agent_config(OPENCLAW_MCP_CONFIG)
+        except AgentConfigError as exc:
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,
@@ -55,7 +55,7 @@ class MCPSecuritySweep(BaseSweep):
             ))
 
         # Check each configured server
-        servers = data.get("mcpServers", {})
+        servers = extract_mcp_servers(data)
         for server_name, server_cfg in servers.items():
             # Check tool descriptions for injection patterns
             tools = server_cfg.get("tools", [])

@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import ACTIVE_PROFILE, OPENCLAW_CONFIG
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
 
 logger = logging.getLogger(__name__)
+
+
+def _contains_wildcard(value: object) -> bool:
+    if value == "*":
+        return True
+    if isinstance(value, list):
+        return any(_contains_wildcard(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_wildcard(item) for item in value.values())
+    return False
 
 
 class ToolPolicyAuditSweep(BaseSweep):
@@ -28,8 +38,8 @@ class ToolPolicyAuditSweep(BaseSweep):
             return ModuleResult(module_name=self.name, findings=findings)
 
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError as exc:
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,
@@ -48,7 +58,7 @@ class ToolPolicyAuditSweep(BaseSweep):
         if isinstance(elevated, dict):
             # allowFrom contains wildcard
             allow_from = elevated.get("allowFrom", [])
-            if isinstance(allow_from, list) and "*" in allow_from:
+            if _contains_wildcard(allow_from):
                 findings.append(Finding(
                     module=self.name,
                     severity=Severity.CRITICAL,
@@ -56,35 +66,17 @@ class ToolPolicyAuditSweep(BaseSweep):
                     detail="tools.elevated.allowFrom contains '*', any caller can use elevated tools.",
                     path=str(OPENCLAW_CONFIG),
                 ))
-            elif isinstance(allow_from, str) and allow_from == "*":
-                findings.append(Finding(
-                    module=self.name,
-                    severity=Severity.CRITICAL,
-                    title="Elevated tools allow all callers",
-                    detail="tools.elevated.allowFrom is '*', any caller can use elevated tools.",
-                    path=str(OPENCLAW_CONFIG),
-                ))
 
-            # requireApproval is false
-            if elevated.get("requireApproval") is False:
-                findings.append(Finding(
-                    module=self.name,
-                    severity=Severity.CRITICAL,
-                    title="Elevated tools do not require approval",
-                    detail="tools.elevated.requireApproval is false. Dangerous commands execute without confirmation.",
-                    path=str(OPENCLAW_CONFIG),
-                ))
-
-            # Elevated mode with no restrictions at all
+            # Current OpenClaw scopes elevated access with provider-specific
+            # allowFrom maps; requireApproval was a legacy cloned-schema key.
             has_allow_from = bool(allow_from)
-            has_approval = elevated.get("requireApproval", True) is not False
             has_deny = bool(tools.get("deny"))
-            if not has_allow_from and not has_approval and not has_deny:
+            if elevated.get("enabled") is True and not has_allow_from and not has_deny:
                 findings.append(Finding(
                     module=self.name,
                     severity=Severity.CRITICAL,
                     title="Elevated mode with no restrictions",
-                    detail="Elevated tools have no allowFrom, no requireApproval, and no deny list.",
+                    detail="Elevated tools are enabled with no allowFrom map or deny list.",
                     path=str(OPENCLAW_CONFIG),
                 ))
 
