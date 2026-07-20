@@ -49,11 +49,19 @@ def test_get_nested_non_dict():
     assert _get_nested(data, "a.b") is None
 
 
-def test_sweep_runs_without_openclaw():
+def test_sweep_runs_without_openclaw(tmp_path):
     """SecurityScoreSweep should run without crashing even if ~/.openclaw doesn't exist."""
+    from unittest.mock import patch
     from ai_agent_audit.sweeps.security_score import SecurityScoreSweep
     sweep = SecurityScoreSweep()
-    result = sweep.run()
+    missing = tmp_path / "missing"
+    with patch("ai_agent_audit.sweeps.security_score.OPENCLAW_HOME", missing), \
+            patch("ai_agent_audit.sweeps.security_score.OPENCLAW_CONFIG", missing / "openclaw.json"), \
+            patch("ai_agent_audit.sweeps.security_score.OPENCLAW_MCP_CONFIG", missing / "openclaw.json"), \
+            patch("ai_agent_audit.sweeps.security_score.OPENCLAW_EXEC_APPROVALS", missing / "exec-approvals.json"), \
+            patch("ai_agent_audit.sweeps.security_score.OPENCLAW_WORKSPACE", missing / "workspace"), \
+            patch("ai_agent_audit.sweeps.security_score.EXPECTED_PERMISSIONS", {}):
+        result = sweep.run()
     assert result.module_name == "security_score"
     assert len(result.findings) == 1  # always produces a score finding
 
@@ -62,10 +70,11 @@ def test_sweep_runs_without_openclaw():
     assert "Security Score:" in finding.title
     assert "Grade:" in finding.title
     assert "/140" in finding.title
+    assert "Grade: INCOMPLETE" in finding.title
 
 
 def test_sweep_score_range():
-    """Score should be between 0 and 135."""
+    """Score should be between 0 and 140."""
     from ai_agent_audit.sweeps.security_score import SecurityScoreSweep
     sweep = SecurityScoreSweep()
     result = sweep.run()
@@ -80,7 +89,7 @@ def test_sweep_score_range():
 
 
 def test_sweep_detail_has_all_checks():
-    """Detail should list all 17 checks."""
+    """Detail should list all 18 checks, including unknown visibility."""
     from ai_agent_audit.sweeps.security_score import SecurityScoreSweep
     sweep = SecurityScoreSweep()
     result = sweep.run()
@@ -89,4 +98,5 @@ def test_sweep_detail_has_all_checks():
     # Should contain PASS or FAIL for each check
     pass_count = detail.count("[PASS]")
     fail_count = detail.count("[FAIL]")
-    assert pass_count + fail_count == 18
+    unknown_count = detail.count("[UNKNOWN]")
+    assert pass_count + fail_count + unknown_count == 18

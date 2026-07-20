@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import threading
@@ -12,7 +11,9 @@ from typing import Any
 from watchdog.events import FileSystemEventHandler, FileModifiedEvent
 from watchdog.observers import Observer
 
+from ..agent_config import AgentConfigError, first_nested, load_agent_config
 from ..config import (
+    ACTIVE_PROFILE,
     INSECURE_CONFIG_RULES,
     OPENCLAW_CONFIG,
     SECRET_PATTERNS,
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_key(data: dict, dotted_key: str) -> Any:
-    """Resolve a dotted key like 'gateway.auth.enabled' from a nested dict."""
+    """Resolve a dotted key from a nested dict (legacy test/helper API)."""
     parts = dotted_key.split(".")
     cur = data
     for part in parts:
@@ -80,14 +81,16 @@ class ConfigWatcher(BaseMonitor):
 
         try:
             raw = self._config_path.read_text()
-            data = json.loads(raw)
-        except (json.JSONDecodeError, OSError) as exc:
+            data = load_agent_config(self._config_path)
+        except AgentConfigError as exc:
             logger.debug("Could not read config: %s", exc)
             return
 
         # Check insecure config rules
         for rule in INSECURE_CONFIG_RULES:
-            value = _resolve_key(data, rule["key"])
+            if ACTIVE_PROFILE.slug not in rule.get("profiles", (ACTIVE_PROFILE.slug,)):
+                continue
+            value = first_nested(data, rule["key"], *rule.get("legacy_keys", ()))
             if rule["check"](value):
                 self.report_finding(Finding(
                     module=self.name,

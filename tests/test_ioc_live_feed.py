@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -59,6 +60,23 @@ class TestLoadCustomIOCs:
 
     def test_missing_file_returns_zero(self):
         assert ioc.load_custom_iocs(path=Path("/nonexistent/ioc-custom.json")) == 0
+
+    def test_external_confidence_ages_from_feed_last_seen(self, restore_ioc_sets):
+        tmp = Path(tempfile.mkdtemp()) / "ioc-custom.json"
+        value = "stale-feed.example"
+        tmp.write_text(json.dumps({
+            "malicious_domains": [value],
+            "_metadata": {
+                value: {
+                    "source": "threatfox",
+                    "category": "malicious_domains",
+                    "confidence": 0.9,
+                    "last_seen": time.time() - (100 * 86400),
+                }
+            },
+        }))
+        ioc.load_custom_iocs(path=tmp)
+        assert ioc.ioc_confidence(value) == 0.3
 
 
 class TestAutoRefreshGate:

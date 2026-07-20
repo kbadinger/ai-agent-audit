@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 
 from ..config import (
+    AGENT_SENSITIVE_FILES,
     MONITOR_POLL_INTERVAL_SECONDS,
     OPENCLAW_CREDENTIALS,
     OPENCLAW_ENV,
@@ -33,10 +34,17 @@ class CredentialGuard(BaseMonitor):
 
     name = "credential_guard"
 
-    def __init__(self, on_finding, creds_dir: Path | None = None, env_path: Path | None = None):
+    def __init__(
+        self,
+        on_finding,
+        creds_dir: Path | None = None,
+        env_path: Path | None = None,
+        sensitive_files: tuple[Path, ...] | None = None,
+    ):
         super().__init__(on_finding)
         self._creds_dir = creds_dir or OPENCLAW_CREDENTIALS
         self._env_path = env_path or OPENCLAW_ENV
+        self._sensitive_files = sensitive_files if sensitive_files is not None else AGENT_SENSITIVE_FILES
         self._hashes: dict[str, str] = {}
         self._poll_thread: threading.Thread | None = None
 
@@ -69,6 +77,7 @@ class CredentialGuard(BaseMonitor):
         files: list[Path] = []
         if self._env_path.exists():
             files.append(self._env_path)
+        files.extend(path for path in self._sensitive_files if path.is_file())
         if self._creds_dir.exists():
             files.extend(f for f in self._creds_dir.rglob("*") if f.is_file())
         return files

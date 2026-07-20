@@ -1,145 +1,133 @@
 {
   "_frame_metadata": {
     "purpose": "Project structure and module map for AI assistants",
-    "forAI": "Read this file FIRST when starting work on this project. It contains the module structure, data flow, and conventions. Update this file when you add new modules or change the architecture.",
-    "lastUpdated": "2026-03-27",
+    "forAI": "Read this file first, then PROJECT_NOTES.md and tasks.json. Update it when modules or architectural boundaries change.",
+    "lastUpdated": "2026-07-19",
     "generatedBy": "SubFrame"
   },
-  "version": "1.0",
-  "description": "ai-agent-audit - update this description",
+  "version": "1.1",
+  "description": "Profile-driven Python security audit daemon for OpenClaw and Hermes installations",
   "architecture": {
-    "type": "",
-    "entryPoint": "",
-    "notes": ""
+    "type": "Profile-driven monitor and sweep pipeline",
+    "entryPoint": "src/ai_agent_audit/cli.py:main",
+    "notes": "Agent-specific parsing and native audits are adapters; normalized findings flow through enrichment, confidence calibration, SQLite persistence, stale resolution, alerts, reports, and exports."
   },
   "modules": {
-    "engine.py": {
-      "purpose": "Central orchestrator — registers monitors/sweeps, runs sweep cycles, enriches and calibrates findings, dispatches callbacks",
-      "exports": [
-        "AuditEngine",
-        "build_default_engine"
-      ]
+    "core/agents": {
+      "file": "src/ai_agent_audit/agents.py",
+      "description": "OpenClaw and Hermes filesystem, process, command, workspace, skill, and native-audit profiles.",
+      "exports": ["AgentProfile", "all_profiles", "get_active_profile"],
+      "depends": ["os", "pathlib"]
     },
-    "cli.py": {
-      "purpose": "Argparse CLI entry point — start/stop/status/sweep/report/fix/update-ioc commands",
-      "exports": [
-        "main"
-      ]
+    "core/agentConfig": {
+      "file": "src/ai_agent_audit/agent_config.py",
+      "description": "JSON5/YAML parsing and current/legacy schema normalization for auth, sandbox, logging, DM, and MCP settings.",
+      "exports": ["AgentConfigError", "load_agent_config", "extract_mcp_servers", "auth_enabled", "sandbox_enabled"],
+      "depends": ["json5", "yaml", "core/agents"]
     },
-    "models.py": {
-      "purpose": "Core data models — Finding (with dedup hash, confidence, triage, MITRE/OWASP fields) and ModuleResult",
-      "exports": [
-        "Severity",
-        "Finding",
-        "ModuleResult"
-      ]
+    "core/advisoryCatalog": {
+      "file": "src/ai_agent_audit/advisory_catalog.py",
+      "description": "Loads bundled CVE/GHSA data and refreshes repository advisories from GitHub into a local cache.",
+      "exports": ["load_catalog", "AdvisoryCatalogUpdater"],
+      "depends": ["urllib", "importlib.resources", "core/config"]
     },
-    "db.py": {
-      "purpose": "Thread-safe SQLite storage with deduplication, migrations, trend data, and precision stats",
-      "exports": [
-        "FindingsDB"
-      ]
+    "core/config": {
+      "file": "src/ai_agent_audit/config.py",
+      "description": "Active-profile paths, security rules, patterns, intervals, and feed refresh settings.",
+      "exports": ["ACTIVE_PROFILE", "AGENT_HOME", "AGENT_CONFIG", "AUDIT_DIR", "INSECURE_CONFIG_RULES"],
+      "depends": ["core/agents"]
     },
-    "config.py": {
-      "purpose": "Centralized paths (OpenClaw home, audit data), permission expectations, insecure config rules",
-      "exports": [
-        "OPENCLAW_HOME",
-        "AUDIT_DIR",
-        "AUDIT_DB",
-        "EXPECTED_PERMISSIONS"
-      ]
+    "core/models": {
+      "file": "src/ai_agent_audit/models.py",
+      "description": "Finding, severity, and explicit module health data models.",
+      "exports": ["Severity", "ModuleStatus", "Finding", "ModuleResult"],
+      "depends": ["dataclasses", "enum"]
     },
-    "ioc.py": {
-      "purpose": "Hardcoded IOC database (C2 IPs, malicious domains, publishers, reverse shell patterns) with match aging and confidence scoring",
-      "exports": [
-        "C2_IPS",
-        "MALICIOUS_DOMAINS",
-        "ioc_confidence",
-        "record_ioc_match"
-      ]
+    "core/engine": {
+      "file": "src/ai_agent_audit/engine.py",
+      "description": "Runs monitors and sweeps, refreshes intelligence, enriches/calibrates findings, persists results, resolves stale evidence, and dispatches alerts.",
+      "exports": ["AuditEngine", "build_default_engine"],
+      "depends": ["core/db", "core/models", "core/ioc", "core/advisoryCatalog", "core/profile", "core/mappings"]
     },
-    "alerting.py": {
-      "purpose": "Alert dispatcher — sends critical findings to Slack, Telegram, macOS notifications, or file with cooldown deduplication",
-      "exports": [
-        "Alerter"
-      ]
+    "core/db": {
+      "file": "src/ai_agent_audit/db.py",
+      "description": "Thread-safe SQLite finding persistence, deduplication, triage, trends, and stale resolution.",
+      "exports": ["FindingsDB"],
+      "depends": ["sqlite3", "core/config", "core/models"]
     },
-    "mappings.py": {
-      "purpose": "Centralized MITRE ATT&CK, OWASP ASI, confidence, and remediation mappings for all finding types",
-      "exports": [
-        "enrich"
-      ]
+    "core/ioc": {
+      "file": "src/ai_agent_audit/ioc.py",
+      "description": "Built-in and loaded IOC collections, source metadata, match tracking, aging, and live snapshot replacement.",
+      "exports": ["C2_IPS", "MALICIOUS_DOMAINS", "ioc_confidence", "load_custom_iocs", "record_ioc_match"],
+      "depends": ["core/config"]
     },
-    "learner.py": {
-      "purpose": "Precision tracker — calibrates finding confidence from human triage feedback (confirmed vs false_positive)",
-      "exports": [
-        "PrecisionTracker"
-      ]
+    "core/iocUpdater": {
+      "file": "src/ai_agent_audit/ioc_updater.py",
+      "description": "ThreatFox/native IOC ingestion with provenance and source-snapshot replacement semantics.",
+      "exports": ["IOCUpdater", "parse_threatfox"],
+      "depends": ["urllib", "core/ioc", "core/config"]
     },
-    "profile.py": {
-      "purpose": "Environment profiler — detects installed components (Docker, MCP, skills, gateway) to skip irrelevant sweeps",
-      "exports": [
-        "EnvironmentProfiler"
-      ]
+    "core/profile": {
+      "file": "src/ai_agent_audit/profile.py",
+      "description": "Detects Docker, current embedded MCP config, skills, config, and gateway relevance.",
+      "exports": ["EnvironmentProfiler"],
+      "depends": ["core/agentConfig", "core/config"]
     },
-    "report.py": {
-      "purpose": "Jinja2 HTML report generator with 30-day trend charts and security score display",
-      "exports": [
-        "ReportGenerator"
-      ]
+    "core/remediate": {
+      "file": "src/ai_agent_audit/remediate.py",
+      "description": "Tightens permissions, delegates config fixes to native schema-aware commands with validated backups, and quarantines malicious skills.",
+      "exports": ["RemediationEngine"],
+      "depends": ["core/agentConfig", "core/config", "core/ioc"]
     },
-    "remediate.py": {
-      "purpose": "Auto-remediation engine — permission tightening, config hardening, malicious skill quarantine",
-      "exports": [
-        "RemediationEngine"
-      ]
+    "monitors/configWatcher": {
+      "file": "src/ai_agent_audit/monitors/config_watcher.py",
+      "description": "Watches current JSON5/YAML config and reports explicit insecure values and hardcoded secrets.",
+      "exports": ["ConfigWatcher"],
+      "depends": ["watchdog", "core/agentConfig", "core/config", "core/models"]
     },
-    "daemon.py": {
-      "purpose": "Unix double-fork daemonization, PID file management, signal handling, log setup",
-      "exports": [
-        "daemonize",
-        "read_pid",
-        "write_pid",
-        "stop_daemon"
-      ]
+    "sweeps/nativeSecurityAudit": {
+      "file": "src/ai_agent_audit/sweeps/native_security_audit.py",
+      "description": "Executes and normalizes structured OpenClaw or Hermes native audit output.",
+      "exports": ["NativeSecurityAuditSweep"],
+      "depends": ["subprocess", "core/config", "core/models"]
     },
-    "ioc_updater.py": {
-      "purpose": "External threat intel feed ingestion — merges URL/file IOC data with custom IOC store",
-      "exports": [
-        "IOCUpdater"
-      ]
+    "sweeps/agentVersionCheck": {
+      "file": "src/ai_agent_audit/sweeps/agent_version_check.py",
+      "description": "Matches installed date-style releases, including composite Hermes output, against generic CVE/GHSA affected ranges.",
+      "exports": ["AgentVersionCheckSweep"],
+      "depends": ["core/advisoryCatalog", "core/agentConfig", "core/config", "core/models"]
     },
-    "monitors/base.py": {
-      "purpose": "Abstract base class for always-on threaded monitors with finding callback",
-      "exports": [
-        "BaseMonitor"
-      ]
-    },
-    "sweeps/base.py": {
-      "purpose": "Abstract base class for periodic sweeps with timing wrapper",
-      "exports": [
-        "BaseSweep"
-      ]
-    },
-    "sweeps/correlation.py": {
-      "purpose": "Multi-indicator attack chain detection — 6 patterns (active breach, privilege escalation, supply chain, exfiltration, coordinated attack, escalating threat)",
-      "exports": [
-        "CorrelationSweep"
-      ]
-    },
-    "sweeps/skill_scanner.py": {
-      "purpose": "Scans installed skills for C2 IPs, AMOS indicators, reverse shells, exfiltration endpoints",
-      "exports": [
-        "SkillScannerSweep"
-      ]
-    },
-    "sweeps/security_score.py": {
-      "purpose": "Weighted 0-135 security score across 17 checks with A-F grade",
-      "exports": [
-        "SecurityScoreSweep"
-      ]
+    "sweeps/securityScore": {
+      "file": "src/ai_agent_audit/sweeps/security_score.py",
+      "description": "Weighted 0-140 score across 18 checks using PASS/FAIL/UNKNOWN evidence and degraded status when visibility is incomplete.",
+      "exports": ["SecurityScoreSweep"],
+      "depends": ["psutil", "core/agentConfig", "core/config", "core/ioc", "core/models"]
     }
   },
-  "dataFlow": [],
-  "conventions": {}
+  "ipcChannels": {},
+  "dataFlow": [
+    "AgentProfile -> agent_config/native audit adapters",
+    "Monitors and sweeps -> Finding/ModuleResult",
+    "Engine -> enrichment -> confidence -> SQLite -> alerts/exports/reports",
+    "Successful scan hashes -> stale resolution; degraded/error scans preserve prior evidence"
+  ],
+  "architectureNotes": {
+    "agentSchemaBoundary": {
+      "issue": "Hand-copied product schemas drifted from current OpenClaw JSON5 and Hermes YAML.",
+      "solution": "All agent config parsing/normalization is centralized in agent_config.py and native structured audits are ingested as a separate adapter."
+    },
+    "scanCompleteness": {
+      "issue": "Exceptions and denied OS visibility could look like clean scans.",
+      "solution": "ModuleResult carries ok/degraded/skipped/error; unknown checks receive no score credit and only complete scans resolve stale findings."
+    },
+    "safeRemediation": {
+      "issue": "Rewriting cloned config keys could corrupt newer agent configurations.",
+      "solution": "Config changes are delegated to a product-native fixer with a validated backup and automatic restoration on failure."
+    }
+  },
+  "conventions": {
+    "configParsing": "Use agent_config.py; do not call json.loads directly on agent configuration.",
+    "visibility": "Represent unavailable evidence as ModuleStatus.DEGRADED and UNKNOWN, never PASS.",
+    "remediation": "Never write cloned agent schema fields; use a native fixer or require manual action."
+  }
 }

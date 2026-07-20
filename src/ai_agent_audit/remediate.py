@@ -8,10 +8,15 @@ import os
 import re
 import shutil
 import stat
+import subprocess
+import time
 from pathlib import Path
 
 from . import ioc
+from .agent_config import AgentConfigError, load_agent_config
 from .config import (
+    ACTIVE_PROFILE,
+    AGENT_SENSITIVE_FILES,
     AUDIT_DIR,
     OPENCLAW_AGENTS,
     OPENCLAW_CONFIG,
@@ -27,12 +32,13 @@ logger = logging.getLogger(__name__)
 
 _REMEDIATION_LOG = AUDIT_DIR / "remediation.log"
 _QUARANTINE_DIR = AUDIT_DIR / "quarantine"
+_BACKUP_DIR = AUDIT_DIR / "backups"
 
 # Paths that should be mode 700 (directories)
 _DIR_700: list[Path] = [OPENCLAW_HOME, OPENCLAW_CREDENTIALS, OPENCLAW_EXTENSIONS]
 
 # Paths that should be mode 600 (files)
-_FILE_600: list[Path] = [OPENCLAW_CONFIG, OPENCLAW_ENV]
+_FILE_600: list[Path] = [OPENCLAW_CONFIG, OPENCLAW_ENV, *AGENT_SENSITIVE_FILES]
 
 # Additional files checked if they exist
 _OPTIONAL_FILE_600: list[Path] = [
@@ -126,65 +132,70 @@ class RemediationEngine:
     # --- Config hardening ---
 
     def _fix_config(self) -> None:
-        """Harden openclaw.json settings."""
+        """Delegate config changes to the agent's current native fixer.
+
+        The project no longer rewrites cloned OpenClaw/Hermes schema fields.
+        A validated backup is retained and restored if the native command fails
+        or produces an unreadable configuration.
+        """
         if not OPENCLAW_CONFIG.exists():
             return
 
         try:
-            config = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError as exc:
             self._log_action("fix_config", f"Cannot read config: {exc}", applied=False)
             return
 
-        changed = False
+        command = ACTIVE_PROFILE.native_fix_command
+        if not command:
+            self._log_action(
+                "fix_config",
+                f"{ACTIVE_PROFILE.display_name} has no supported native config fixer; no config changes made",
+                applied=False,
+            )
+            return
+        if self.dry_run:
+            self._log_action(
+                "fix_config",
+                f"Would run schema-aware native fixer: {' '.join(command)}",
+                applied=False,
+            )
+            return
 
-        # gateway.bind -> 127.0.0.1
-        gw = config.get("gateway", {})
-        bind_val = gw.get("bind")
-        if bind_val not in (None, "127.0.0.1", "localhost", "::1", "loopback"):
-            gw["bind"] = "127.0.0.1"
-            config["gateway"] = gw
-            self._log_action("fix_config", f"gateway.bind: {bind_val!r} -> '127.0.0.1'", applied=not self.dry_run)
-            changed = True
-
-        # gateway.auth.enabled -> true
-        auth = gw.get("auth", {})
-        if auth.get("enabled") is False:
-            auth["enabled"] = True
-            gw["auth"] = auth
-            config["gateway"] = gw
-            self._log_action("fix_config", "gateway.auth.enabled: false -> true", applied=not self.dry_run)
-            changed = True
-
-        # gateway.auth.allowOpenDM -> false
-        if auth.get("allowOpenDM") is True:
-            auth["allowOpenDM"] = False
-            gw["auth"] = auth
-            config["gateway"] = gw
-            self._log_action("fix_config", "gateway.auth.allowOpenDM: true -> false", applied=not self.dry_run)
-            changed = True
-
-        # sandbox.enabled -> true
-        sandbox = config.get("sandbox", {})
-        if sandbox.get("enabled") is False:
-            sandbox["enabled"] = True
-            config["sandbox"] = sandbox
-            self._log_action("fix_config", "sandbox.enabled: false -> true", applied=not self.dry_run)
-            changed = True
-
-        # logging.redactSecrets -> true
-        log_cfg = config.get("logging", {})
-        if log_cfg.get("redactSecrets") is False:
-            log_cfg["redactSecrets"] = True
-            config["logging"] = log_cfg
-            self._log_action("fix_config", "logging.redactSecrets: false -> true", applied=not self.dry_run)
-            changed = True
-
-        if changed and not self.dry_run:
+        try:
+            _BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            backup = _BACKUP_DIR / f"{OPENCLAW_CONFIG.name}.{time.time_ns()}.bak"
+            shutil.copy2(OPENCLAW_CONFIG, backup)
+            completed = subprocess.run(
+                list(command), capture_output=True, text=True, timeout=120,
+            )
+            if completed.returncode != 0:
+                shutil.copy2(backup, OPENCLAW_CONFIG)
+                detail = completed.stderr.strip() or completed.stdout.strip()
+                self._log_action(
+                    "fix_config",
+                    f"Native fixer failed; restored {backup.name}: {detail[:300]}",
+                    applied=False,
+                )
+                return
             try:
-                OPENCLAW_CONFIG.write_text(json.dumps(config, indent=2) + "\n")
-            except OSError as exc:
-                self._log_action("fix_config", f"Failed to write config: {exc}", applied=False)
+                load_agent_config(OPENCLAW_CONFIG)
+            except AgentConfigError as exc:
+                shutil.copy2(backup, OPENCLAW_CONFIG)
+                self._log_action(
+                    "fix_config",
+                    f"Native fixer produced invalid config; restored {backup.name}: {exc}",
+                    applied=False,
+                )
+                return
+            self._log_action(
+                "fix_config",
+                f"Native schema-aware fixer completed; backup: {backup}",
+                applied=True,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self._log_action("fix_config", f"Native fixer unavailable: {exc}", applied=False)
 
     # --- Malicious skill removal ---
 

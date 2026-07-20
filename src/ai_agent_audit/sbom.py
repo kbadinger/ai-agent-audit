@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .agent_config import AgentConfigError, extract_mcp_servers, load_agent_config
 from .config import ACTIVE_PROFILE, OPENCLAW_EXTENSIONS, OPENCLAW_MCP_CONFIG, OPENCLAW_SKILLS
 
 logger = logging.getLogger(__name__)
@@ -115,11 +116,11 @@ def _scan_mcp_servers(components: list[dict]) -> None:
         return
 
     try:
-        data = json.loads(OPENCLAW_MCP_CONFIG.read_text())
-    except (json.JSONDecodeError, OSError):
+        data = load_agent_config(OPENCLAW_MCP_CONFIG)
+    except AgentConfigError:
         return
 
-    servers = data.get("mcpServers", {})
+    servers = extract_mcp_servers(data)
     for server_name, server_cfg in sorted(servers.items()):
         if not isinstance(server_cfg, dict):
             continue

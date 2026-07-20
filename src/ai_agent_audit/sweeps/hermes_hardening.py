@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 from ..config import ACTIVE_PROFILE, AGENT_SKILLS
-from ..models import Finding, ModuleResult, Severity
+from ..models import Finding, ModuleResult, ModuleStatus, Severity
 from .base import BaseSweep
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class HermesHardeningSweep(BaseSweep):
 
         self._check_write_safe_root(findings)
         self._check_container_approval(findings)
-        self._check_yolo(findings)
+        process_visible = self._check_yolo(findings)
         self._check_skill_setup_commands(findings)
 
         if not findings:
@@ -44,7 +44,12 @@ class HermesHardeningSweep(BaseSweep):
                        "no --yolo process, no skill setup.commands found.",
             ))
 
-        return ModuleResult(module_name=self.name, findings=findings)
+        return ModuleResult(
+            module_name=self.name,
+            findings=findings,
+            status=ModuleStatus.OK if process_visible else ModuleStatus.DEGRADED,
+            message=None if process_visible else "Process visibility unavailable; --yolo could not be checked",
+        )
 
     def _check_write_safe_root(self, findings: list[Finding]) -> None:
         if not os.environ.get("HERMES_WRITE_SAFE_ROOT"):
@@ -69,15 +74,15 @@ class HermesHardeningSweep(BaseSweep):
                 ),
             ))
 
-    def _check_yolo(self, findings: list[Finding]) -> None:
+    def _check_yolo(self, findings: list[Finding]) -> bool:
         try:
             import psutil
         except ImportError:
-            return
+            return False
         try:
             procs = list(psutil.process_iter(["cmdline"]))
-        except psutil.Error:
-            return
+        except (psutil.Error, OSError):
+            return False
         for proc in procs:
             try:
                 cmdline = " ".join(proc.info.get("cmdline") or [])
@@ -94,6 +99,7 @@ class HermesHardeningSweep(BaseSweep):
                     ),
                 ))
                 break
+        return True
 
     def _check_skill_setup_commands(self, findings: list[Finding]) -> None:
         skills = AGENT_SKILLS

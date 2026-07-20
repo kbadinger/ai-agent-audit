@@ -56,12 +56,16 @@ def test_explicit_hermes_via_env(monkeypatch):
         "HERMES_HOME": None,
     })
     assert profile.slug == "hermes"
-    assert profile.config_filename == "hermes.json"
+    assert profile.config_filename == "config.yaml"
     assert profile.home == Path.home() / ".hermes"
 
     # Legacy aliases must route to the active profile, not the literal openclaw home
     assert config.OPENCLAW_HOME == profile.home
-    assert config.OPENCLAW_CONFIG == profile.home / "hermes.json"
+    assert config.OPENCLAW_CONFIG == profile.home / "config.yaml"
+    assert profile.workspace_path == profile.home
+    assert profile.mcp_config_path == profile.config_path
+    assert profile.sensitive_files == (profile.home / "auth.json",)
+    assert profile.extensions_path == profile.home / "plugins"
     assert config.AUDIT_DIR == profile.home / ".audit"
 
 
@@ -73,7 +77,7 @@ def test_home_dir_override_via_env(monkeypatch, tmp_path):
         "OPENCLAW_HOME": None,
     })
     assert profile.home == custom
-    assert profile.config_path == custom / "hermes.json"
+    assert profile.config_path == custom / "config.yaml"
 
 
 def test_auto_resolution_prefers_existing_install(monkeypatch, tmp_path):

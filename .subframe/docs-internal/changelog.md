@@ -5,6 +5,44 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-19 — Current-Schema Correctness Refresh
+
+### Added
+- Current agent configuration adapters: OpenClaw JSON5 and Hermes
+  `~/.hermes/config.yaml` YAML, including embedded `mcp.servers` normalization.
+- Native audit adapter for `openclaw security audit --json` and
+  `hermes audit --json`.
+- Explicit sweep health (`ok`, `degraded`, `skipped`, `error`) and
+  `sweep --fail-on degraded` for strict automation.
+- Bundled generic CVE/GHSA advisory catalog with daily GitHub repository
+  advisory refresh and affected-range support.
+- Integration tests for sweep persistence, alert delivery, error reporting,
+  and stale-finding resolution; configuration, remediation, advisory, and IOC
+  lifecycle tests.
+- Python 3.13/3.14 CI coverage and a 40% branch-coverage regression floor.
+
+### Changed
+- Hermes now uses its canonical config, skills, and home-root memory layout.
+- OpenClaw checks use current `gateway.auth.mode`,
+  `agents.defaults.sandbox.mode`, `logging.redactSensitive`, provider-scoped
+  `allowFrom`, channel account DM policies, and embedded MCP configuration,
+  while retaining legacy read compatibility.
+- Config remediation no longer rewrites cloned schema fields. It delegates to
+  an agent-native fixer, keeps a validated backup, and restores it on failure.
+- ThreatFox refreshes replace that source's prior snapshot, store provenance,
+  and age confidence from feed `last_seen` metadata.
+- Package version bumped from 0.3.0 to 0.4.0.
+
+### Fixed
+- macOS `PermissionError` from top-level `psutil.process_iter()` no longer
+  crashes Hermes hardening or security scoring.
+- Unavailable process/network evidence is now `UNKNOWN` and receives no score
+  credit instead of being presented as a pass.
+- Periodic sweep findings now reach alert backends.
+- Successful clean sweeps resolve stale findings; degraded/error scans retain
+  existing evidence.
+- Sweep exceptions are returned to the CLI instead of being silently omitted.
+
 ## [0.3.0] - 2026-06-08 — Threat-Landscape Currency Refresh (Sprint 12)
 
 ### Added

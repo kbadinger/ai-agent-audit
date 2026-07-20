@@ -6,12 +6,12 @@ PATH manipulation, and binary name collision bypasses.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 from pathlib import Path
 
+from ..agent_config import AgentConfigError, get_nested, load_agent_config
 from ..config import ACTIVE_PROFILE, OPENCLAW_CONFIG, OPENCLAW_HOME
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
@@ -57,8 +57,8 @@ class SafeBinsBypassSweep(BaseSweep):
             return ModuleResult(module_name=self.name, findings=findings)
 
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError as exc:
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,
@@ -67,22 +67,28 @@ class SafeBinsBypassSweep(BaseSweep):
             ))
             return ModuleResult(module_name=self.name, findings=findings)
 
-        sandbox = data.get("sandbox", {})
+        sandbox = get_nested(data, "agents.defaults.sandbox") or data.get("sandbox", {})
         if not isinstance(sandbox, dict):
             return ModuleResult(module_name=self.name, findings=findings)
 
         # Check if sandbox is even enabled
-        if not sandbox.get("enabled", False):
+        mode = sandbox.get("mode")
+        enabled = sandbox.get("enabled")
+        if enabled is False or (
+            isinstance(mode, str) and mode.lower() in {"off", "none", "disabled"}
+        ):
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,
                 title="Sandbox disabled — safeBins irrelevant",
-                detail="sandbox.enabled is false. safeBins restrictions have no effect.",
+                detail="The agent sandbox is disabled. safeBins restrictions have no effect.",
                 path=str(OPENCLAW_CONFIG),
             ))
             return ModuleResult(module_name=self.name, findings=findings)
 
-        safe_bins = sandbox.get("safeBins", [])
+        safe_bins = sandbox.get("safeBins")
+        if safe_bins is None:
+            safe_bins = get_nested(data, "tools.exec.safeBins") or []
         if not isinstance(safe_bins, list):
             return ModuleResult(module_name=self.name, findings=findings)
 

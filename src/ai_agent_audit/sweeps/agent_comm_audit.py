@@ -8,6 +8,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import (
     OPENCLAW_AGENTS,
     OPENCLAW_CONFIG,
@@ -209,8 +210,8 @@ class AgentCommAuditSweep(BaseSweep):
             return
 
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError):
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError:
             return
 
         agents_cfg = data.get("agents", {})

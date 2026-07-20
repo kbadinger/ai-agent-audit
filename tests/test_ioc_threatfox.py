@@ -124,3 +124,16 @@ class TestUpdaterIntegration:
             stats = updater.update_from_threatfox()
         assert "error" not in stats
         assert stats["c2_ips_added"] == 1
+
+    def test_threatfox_refresh_replaces_removed_source_entries(self):
+        tmp = tempfile.mkdtemp()
+        custom = Path(tmp) / "ioc-custom.json"
+        updater = IOCUpdater()
+        reduced = {"1002": _SAMPLE["1002"]}
+        with patch("ai_agent_audit.ioc_updater.CUSTOM_IOC_PATH", custom):
+            updater._merge(parse_threatfox(_SAMPLE), source="threatfox", replace_source=True)
+            stats = updater._merge(parse_threatfox(reduced), source="threatfox", replace_source=True)
+        saved = json.loads(custom.read_text())
+        assert "203.0.113.5" not in saved["c2_ips"]
+        assert saved["malicious_domains"] == ["evil-c2.example.com"]
+        assert stats["source_entries_removed"] == 4

@@ -101,9 +101,15 @@ def cmd_sweep(args: argparse.Namespace) -> None:
     results = engine.run_all_sweeps()
 
     total = 0
+    unhealthy = []
     for result in results:
         count = len(result.findings)
         total += count
+        if result.status.value != "ok":
+            suffix = f": {result.message}" if result.message else ""
+            print(f"  {result.module_name}: {result.status.value.upper()}{suffix}")
+            if result.status.value in {"degraded", "error"}:
+                unhealthy.append(result)
         if count > 0:
             print(f"  {result.module_name}: {count} finding(s)")
 
@@ -113,6 +119,12 @@ def cmd_sweep(args: argparse.Namespace) -> None:
         print(f"\nTotal: {total} finding(s)")
 
     db.close()
+
+    fail_on = getattr(args, "fail_on", "error")
+    if fail_on == "degraded" and unhealthy:
+        raise SystemExit(2 if any(r.status.value == "error" for r in unhealthy) else 1)
+    if any(r.status.value == "error" for r in unhealthy):
+        raise SystemExit(2)
 
 
 def cmd_fix(args: argparse.Namespace) -> None:
@@ -287,7 +299,13 @@ def main() -> None:
     sub.add_parser("start", help="Start the audit daemon")
     sub.add_parser("stop", help="Stop the audit daemon")
     sub.add_parser("status", help="Show daemon status and finding summary")
-    sub.add_parser("sweep", help="Run all security sweeps (foreground)")
+    sweep_parser = sub.add_parser("sweep", help="Run all security sweeps (foreground)")
+    sweep_parser.add_argument(
+        "--fail-on",
+        choices=["error", "degraded"],
+        default="error",
+        help="Exit non-zero on sweep errors (default) or on degraded visibility too",
+    )
 
     triage_parser = sub.add_parser("triage", help="Triage findings (confirm/fp/dismiss)")
     triage_parser.add_argument("finding_id", nargs="?", type=int, default=None, help="Finding ID to triage")

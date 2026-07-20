@@ -1,4 +1,8 @@
-# OpenClaw Audit - Gap Analysis & Upgrade Plan
+# OpenClaw Audit - Gap Analysis & Upgrade Plan (Archived)
+
+> Historical pre-implementation plan. The listed tiers were implemented across
+> earlier releases and are not the current task tracker. Use
+> `.subframe/tasks.json` for live work and README.md for current capabilities.
 
 ## Current State
 

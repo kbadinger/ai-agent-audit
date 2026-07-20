@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import OPENCLAW_CONFIG
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
@@ -32,8 +33,8 @@ class ReverseProxyAuditSweep(BaseSweep):
             return ModuleResult(module_name=self.name, findings=findings)
 
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError as exc:
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,

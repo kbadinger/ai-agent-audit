@@ -12,6 +12,7 @@ import json
 import logging
 from pathlib import Path
 
+from ..agent_config import AgentConfigError, extract_mcp_servers, load_agent_config
 from ..config import AUDIT_BASELINES, OPENCLAW_MCP_CONFIG
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
@@ -43,8 +44,8 @@ class MCPRugPullSweep(BaseSweep):
             return ModuleResult(module_name=self.name, findings=findings)
 
         try:
-            data = json.loads(OPENCLAW_MCP_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
+            data = load_agent_config(OPENCLAW_MCP_CONFIG)
+        except AgentConfigError as exc:
             findings.append(Finding(
                 module=self.name,
                 severity=Severity.WARNING,
@@ -55,7 +56,7 @@ class MCPRugPullSweep(BaseSweep):
 
         # Build current tool hash map
         current_hashes: dict[str, dict] = {}
-        servers = data.get("mcpServers", {})
+        servers = extract_mcp_servers(data)
         for server_name, server_cfg in servers.items():
             if not isinstance(server_cfg, dict):
                 continue

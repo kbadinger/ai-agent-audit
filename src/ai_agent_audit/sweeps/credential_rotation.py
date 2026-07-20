@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from ..config import (
+    AGENT_SENSITIVE_FILES,
     AUDIT_BASELINES,
     OPENCLAW_CREDENTIALS,
     OPENCLAW_ENV,
@@ -33,6 +34,8 @@ def _credential_paths() -> list[Path]:
     # .env file
     if OPENCLAW_ENV.is_file():
         paths.append(OPENCLAW_ENV)
+
+    paths.extend(path for path in AGENT_SENSITIVE_FILES if path.is_file())
 
     # All files in credentials directory
     if OPENCLAW_CREDENTIALS.is_dir():

@@ -60,7 +60,7 @@ class TestOpenClawClawChain:
     def test_patched_version_is_clean(self):
         findings = _run(_profile("openclaw", "OpenClaw"), version="2026.4.22")
         assert not [f for f in findings if f.title.startswith("CVE-")]
-        assert any("no known version CVEs" in f.title for f in findings)
+        assert any(f.title.startswith("GHSA-") for f in findings)
 
     def test_severity_split(self):
         findings = _run(_profile("openclaw", "OpenClaw"), version="2026.4.0")
@@ -83,6 +83,11 @@ class TestHermesCVEs:
         assert "CVE-2026-9368" not in ids
         assert "CVE-2026-10548" in ids
 
+    def test_composite_semver_and_date_release_uses_date(self):
+        findings = _run(_profile("hermes", "Hermes"), version="0.18.2 (2026.7.7.2)")
+        assert not [f for f in findings if f.title.startswith("CVE-")]
+        assert any("no known version CVEs" in f.title for f in findings)
+
 
 class TestEdgeCases:
     def test_no_version_detected(self):
@@ -91,7 +96,7 @@ class TestEdgeCases:
 
     def test_non_date_scheme_skipped(self):
         findings = _run(_profile("hermes", "Hermes"), version="0.9.0")
-        assert any("non-date scheme" in f.title for f in findings)
+        assert any("no comparable advisories" in f.title for f in findings)
         assert not [f for f in findings if f.title.startswith("CVE-")]
 
     def test_unknown_profile_has_no_cves(self):

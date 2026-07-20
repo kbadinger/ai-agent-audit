@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import threading
@@ -11,6 +10,7 @@ from pathlib import Path
 from watchdog.events import FileSystemEventHandler, FileModifiedEvent
 from watchdog.observers import Observer
 
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import (
     INJECTION_PATTERNS,
     MEMORY_FILES,
@@ -51,7 +51,13 @@ class _MemoryFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event: FileModifiedEvent) -> None:  # type: ignore[override]
         path = Path(event.src_path)
-        if path.name in MEMORY_FILES:
+        try:
+            relative = path.relative_to(self._monitor._workspace).as_posix()
+        except ValueError:
+            return
+        if relative in MEMORY_FILES or (
+            relative.startswith("memories/") and path.suffix.lower() == ".md"
+        ):
             self._monitor._check_file(path)
 
 
@@ -118,14 +124,18 @@ class MemoryPoisoningMonitor(BaseMonitor):
             fpath = self._workspace / fname
             if fpath.exists():
                 self._check_file(fpath)
+        memories = self._workspace / "memories"
+        if memories.is_dir():
+            for fpath in memories.rglob("*.md"):
+                self._check_file(fpath)
 
     def _check_extra_paths(self) -> None:
         """Check memory.extraPaths for path traversal escaping the workspace."""
         if not OPENCLAW_CONFIG.exists():
             return
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError):
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError:
             return
         extra_paths = (data.get("memory") or {}).get("extraPaths") or []
         if not isinstance(extra_paths, list):

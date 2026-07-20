@@ -1,4 +1,8 @@
-# OpenClaw Audit Tool - Implementation TODO
+# OpenClaw Audit Tool - Implementation TODO (Archived)
+
+> Historical sprint record, retained for context. It is not the live task list
+> and its intermediate counts/schema notes describe earlier releases. Use
+> `.subframe/tasks.json` for current work.
 
 ## Phase 1: Foundation
 - [x] Create `pyproject.toml` with project metadata and 3 deps (watchdog, psutil, jinja2)

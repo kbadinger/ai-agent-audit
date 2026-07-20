@@ -7,7 +7,7 @@ import socket
 
 from ..config import ACTIVE_PROFILE
 from ..ioc import C2_IPS, C2_PORTS, EXFIL_DOMAINS, record_ioc_match
-from ..models import Finding, ModuleResult, Severity
+from ..models import Finding, ModuleResult, ModuleStatus, Severity
 from .base import BaseSweep
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,16 @@ class NetworkForensicsSweep(BaseSweep):
 
         # Find active-agent processes
         agent_pids: set[int] = set()
-        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            processes = list(psutil.process_iter(["pid", "name", "cmdline"]))
+        except (psutil.Error, OSError) as exc:
+            return ModuleResult(
+                module_name=self.name,
+                findings=findings,
+                status=ModuleStatus.DEGRADED,
+                message=f"Process visibility unavailable: {exc}",
+            )
+        for proc in processes:
             if _is_agent_process(proc):
                 agent_pids.add(proc.pid)
 
@@ -75,7 +84,7 @@ class NetworkForensicsSweep(BaseSweep):
             try:
                 proc = psutil.Process(pid)
                 connections = proc.net_connections()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.Error, OSError):
                 continue
 
             for conn in connections:

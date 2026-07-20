@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import socket
 
+from ..agent_config import AgentConfigError, load_agent_config
 from ..config import OPENCLAW_CONFIG
 from ..models import Finding, ModuleResult, Severity
 from .base import BaseSweep
@@ -100,8 +100,8 @@ class WebSocketSecuritySweep(BaseSweep):
         if not OPENCLAW_CONFIG.exists():
             return
         try:
-            data = json.loads(OPENCLAW_CONFIG.read_text())
-        except (json.JSONDecodeError, OSError):
+            data = load_agent_config(OPENCLAW_CONFIG)
+        except AgentConfigError:
             return
 
         control_ui = data.get("gateway", {}).get("controlUi", {})

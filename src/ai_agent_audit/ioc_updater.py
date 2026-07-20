@@ -7,6 +7,7 @@ import logging
 import urllib.request
 import urllib.error
 import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Union
 
@@ -27,6 +28,7 @@ _EMPTY: dict = {
     "malicious_domains": [],
     "malicious_publishers": {},
     "file_hashes": {},
+    "_metadata": {},
 }
 
 
@@ -55,7 +57,10 @@ def _url_host(url: str) -> str | None:
 
 def parse_threatfox(raw: dict, min_confidence: int = THREATFOX_MIN_CONFIDENCE) -> dict:
     """Convert a ThreatFox export into this tool's IOC schema."""
-    out: dict = {"c2_ips": [], "malicious_domains": [], "malicious_publishers": {}, "file_hashes": {}}
+    out: dict = {
+        "c2_ips": [], "malicious_domains": [], "malicious_publishers": {},
+        "file_hashes": {}, "_metadata": {},
+    }
     for entries in raw.values():
         if not isinstance(entries, list):
             continue
@@ -78,16 +83,34 @@ def parse_threatfox(raw: dict, min_confidence: int = THREATFOX_MIN_CONFIDENCE) -
                 or entry.get("threat_type")
                 or "threatfox"
             )
+            normalized_value: str | None = None
+            category: str | None = None
             if ioc_type == "ip:port":
-                out["c2_ips"].append(value.split(":", 1)[0])
+                normalized_value = value.split(":", 1)[0]
+                category = "c2_ips"
+                out[category].append(normalized_value)
             elif ioc_type in ("domain", "hostname"):
-                out["malicious_domains"].append(value)
+                normalized_value = value
+                category = "malicious_domains"
+                out[category].append(normalized_value)
             elif ioc_type == "url":
                 host = _url_host(value)
                 if host:
-                    out["malicious_domains"].append(host)
+                    normalized_value = host
+                    category = "malicious_domains"
+                    out[category].append(normalized_value)
             elif ioc_type in ("sha256_hash", "sha1_hash", "md5_hash"):
-                out["file_hashes"][value] = label
+                normalized_value = value
+                category = "file_hashes"
+                out[category][normalized_value] = label
+            if normalized_value and category:
+                out["_metadata"][normalized_value] = {
+                    "category": category,
+                    "source": "threatfox",
+                    "confidence": confidence / 100,
+                    "first_seen": entry.get("first_seen"),
+                    "last_seen": entry.get("last_seen") or entry.get("first_seen"),
+                }
     return out
 
 
@@ -118,7 +141,10 @@ class IOCUpdater:
             logger.error("Failed to fetch IOC feed from %s: %s", url, exc)
             return {"error": str(exc)}
 
-        return self._merge(self._normalize(raw))
+        normalized = self._normalize(raw)
+        if _looks_like_threatfox(raw):
+            return self._merge(normalized, source="threatfox", replace_source=True)
+        return self._merge(normalized, source=f"url:{url}")
 
     def update_from_threatfox(self, min_confidence: int = THREATFOX_MIN_CONFIDENCE) -> dict:
         """Fetch recent IOCs from abuse.ch ThreatFox (no API key) and merge."""
@@ -131,7 +157,11 @@ class IOCUpdater:
         if not _looks_like_threatfox(raw):
             return {"error": "Unexpected ThreatFox response format"}
 
-        return self._merge(parse_threatfox(raw, min_confidence))
+        return self._merge(
+            parse_threatfox(raw, min_confidence),
+            source="threatfox",
+            replace_source=True,
+        )
 
     def update_from_file(self, path: Union[str, Path]) -> dict:
         """Load IOC data from a local JSON file and merge.
@@ -146,7 +176,10 @@ class IOCUpdater:
             logger.error("Failed to load IOC file %s: %s", path, exc)
             return {"error": str(exc)}
 
-        return self._merge(self._normalize(raw))
+        normalized = self._normalize(raw)
+        if _looks_like_threatfox(raw):
+            return self._merge(normalized, source="threatfox", replace_source=True)
+        return self._merge(normalized, source=f"file:{path}")
 
     def get_merged_iocs(self) -> dict:
         """Return combined hardcoded + custom IOCs."""
@@ -170,14 +203,40 @@ class IOCUpdater:
 
     # --- internal helpers ---
 
-    def _merge(self, new_data: dict) -> dict:
+    def _merge(
+        self,
+        new_data: dict,
+        source: str = "manual",
+        replace_source: bool = False,
+    ) -> dict:
         """Merge new IOC data into the custom IOC file. Return add-counts."""
         custom = self._load_custom()
 
         existing_ips = set(custom.get("c2_ips", []))
         existing_domains = set(custom.get("malicious_domains", []))
-        existing_publishers = custom.get("malicious_publishers", {})
-        existing_hashes = custom.get("file_hashes", {})
+        existing_publishers = dict(custom.get("malicious_publishers", {}))
+        existing_hashes = dict(custom.get("file_hashes", {}))
+        metadata = dict(custom.get("_metadata", {}))
+
+        removed = 0
+        if replace_source:
+            for value, meta in list(metadata.items()):
+                if not isinstance(meta, dict) or meta.get("source") != source:
+                    continue
+                category = meta.get("category")
+                if category == "c2_ips":
+                    removed += value in existing_ips
+                    existing_ips.discard(value)
+                elif category == "malicious_domains":
+                    removed += value in existing_domains
+                    existing_domains.discard(value)
+                elif category == "malicious_publishers":
+                    removed += value in existing_publishers
+                    existing_publishers.pop(value, None)
+                elif category == "file_hashes":
+                    removed += value in existing_hashes
+                    existing_hashes.pop(value, None)
+                metadata.pop(value, None)
 
         new_ips = set(new_data.get("c2_ips", [])) - existing_ips
         new_domains = set(new_data.get("malicious_domains", [])) - existing_domains
@@ -195,6 +254,27 @@ class IOCUpdater:
         custom["malicious_publishers"] = {**existing_publishers, **new_publishers}
         custom["file_hashes"] = {**existing_hashes, **new_hashes}
 
+        incoming_metadata = new_data.get("_metadata", {})
+        now = datetime.now(timezone.utc).isoformat()
+        for category, values in (
+            ("c2_ips", new_data.get("c2_ips", [])),
+            ("malicious_domains", new_data.get("malicious_domains", [])),
+            ("malicious_publishers", new_data.get("malicious_publishers", {}).keys()),
+            ("file_hashes", new_data.get("file_hashes", {}).keys()),
+        ):
+            for value in values:
+                supplied = incoming_metadata.get(value, {}) if isinstance(incoming_metadata, dict) else {}
+                previous = metadata.get(value, {}) if isinstance(metadata.get(value), dict) else {}
+                metadata[value] = {
+                    **previous,
+                    **supplied,
+                    "category": category,
+                    "source": supplied.get("source", source),
+                    "first_seen": supplied.get("first_seen") or previous.get("first_seen") or now,
+                    "last_seen": supplied.get("last_seen") or now,
+                }
+        custom["_metadata"] = metadata
+
         self._save_custom(custom)
 
         stats = {
@@ -202,6 +282,7 @@ class IOCUpdater:
             "malicious_domains_added": len(new_domains),
             "malicious_publishers_added": len(new_publishers),
             "file_hashes_added": len(new_hashes),
+            "source_entries_removed": removed,
         }
         logger.info("IOC merge complete: %s", stats)
         return stats
@@ -209,22 +290,12 @@ class IOCUpdater:
     def _load_custom(self) -> dict:
         """Load custom IOC file if it exists."""
         if not CUSTOM_IOC_PATH.exists():
-            return {
-                "c2_ips": [],
-                "malicious_domains": [],
-                "malicious_publishers": {},
-                "file_hashes": {},
-            }
+            return dict(_EMPTY)
         try:
             return json.loads(CUSTOM_IOC_PATH.read_text())
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Corrupt custom IOC file, starting fresh: %s", exc)
-            return {
-                "c2_ips": [],
-                "malicious_domains": [],
-                "malicious_publishers": {},
-                "file_hashes": {},
-            }
+            return dict(_EMPTY)
 
     def _save_custom(self, data: dict) -> None:
         """Save custom IOC data to disk."""
