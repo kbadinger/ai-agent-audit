@@ -47,6 +47,8 @@ dev = [
 Homepage = "https://github.com/kbadinger/ai-agent-audit"
 Repository = "https://github.com/kbadinger/ai-agent-audit"
 Issues = "https://github.com/kbadinger/ai-agent-audit/issues"
+Changelog = "https://github.com/kbadinger/ai-agent-audit/blob/main/.subframe/docs-internal/changelog.md"
+Security = "https://github.com/kbadinger/ai-agent-audit/security/policy"
 
 [project.scripts]
 ai-agent-audit = "ai_agent_audit.cli:main"

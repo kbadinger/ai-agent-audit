@@ -5,6 +5,26 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Public security policy with private vulnerability-reporting guidance.
+- Contributor guide, code of conduct, issue form, and pull-request template.
+- Weekly Dependabot configuration for Python and GitHub Actions dependencies.
+- Dedicated CodeQL source scanning on pushes, pull requests, and a weekly schedule.
+- Gitleaks allowlist for the RFC 6455 sample nonce used by the WebSocket probe.
+
+### Changed
+- GitHub Actions are pinned to immutable commit SHAs, use read-only checkout
+  credentials, concurrency cancellation, and job timeouts.
+- CI self-scan SARIF remains available as an artifact but is no longer uploaded
+  as source-code analysis, preventing agent-environment notes from appearing as
+  repository vulnerabilities.
+- README security claims now link to original research or vulnerability records,
+  and platform support language distinguishes hosted CI from manual coverage.
+
+### Fixed
+- SARIF exports now report the installed package version instead of a stale
+  hardcoded `0.1.0` tool version.
+
 ## [0.4.0] - 2026-07-19 — Current-Schema Correctness Refresh
 
 ### Added

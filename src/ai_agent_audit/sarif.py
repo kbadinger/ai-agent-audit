@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from . import __version__
 from .models import Severity
 
 # SARIF severity mapping: OpenClaw severity -> SARIF level
@@ -19,8 +20,11 @@ _SEVERITY_MAP = {
 }
 
 
-def findings_to_sarif(findings: list[dict], tool_version: str = "0.1.0") -> dict[str, Any]:
+def findings_to_sarif(
+    findings: list[dict], tool_version: str | None = None
+) -> dict[str, Any]:
     """Convert a list of finding dicts (from FindingsDB) to a SARIF v2.1.0 document."""
+    resolved_tool_version = tool_version or __version__
     rules: dict[str, dict] = {}
     results: list[dict] = []
 
@@ -98,7 +102,7 @@ def findings_to_sarif(findings: list[dict], tool_version: str = "0.1.0") -> dict
                 "tool": {
                     "driver": {
                         "name": "ai-agent-audit",
-                        "version": tool_version,
+                        "version": resolved_tool_version,
                         "informationUri": "https://github.com/kbadinger/ai-agent-audit",
                         "rules": list(rules.values()),
                     }

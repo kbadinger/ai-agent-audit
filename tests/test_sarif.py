@@ -2,6 +2,7 @@
 
 import json
 
+from ai_agent_audit import __version__
 from ai_agent_audit.sarif import findings_to_sarif, sarif_to_json
 
 
@@ -45,6 +46,10 @@ class TestSARIFFormatter:
         driver = sarif["runs"][0]["tool"]["driver"]
         assert driver["name"] == "ai-agent-audit"
         assert driver["version"] == "1.2.3"
+
+    def test_sarif_defaults_to_package_version(self):
+        sarif = findings_to_sarif([])
+        assert sarif["runs"][0]["tool"]["driver"]["version"] == __version__
 
     def test_sarif_finding_mapping(self):
         f = _make_finding()

@@ -1,7 +1,13 @@
 # ai-agent-audit
 
+[![CI](https://github.com/kbadinger/ai-agent-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/kbadinger/ai-agent-audit/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/kbadinger/ai-agent-audit/actions/workflows/codeql.yml/badge.svg)](https://github.com/kbadinger/ai-agent-audit/actions/workflows/codeql.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Security audit daemon for local AI agent installations. Ships with built-in
-profiles for [OpenClaw](https://github.com/openclaw) and Hermes, with a small
+profiles for [OpenClaw](https://github.com/openclaw/openclaw) and
+[Hermes](https://github.com/NousResearch/hermes-agent), with a small
 adapter boundary for each product's configuration and native audit. Runs 7
 always-on monitors and 28
 periodic security sweeps with self-learning confidence calibration, produces
@@ -23,26 +29,26 @@ and the daemon PID file are all stored under the profile's home (e.g.
 
 ## Why This Exists
 
-Local AI agents like OpenClaw run with full user-level permissions and ship
-to hundreds of thousands of developer machines. Recent findings:
+Local AI agents can combine user-level filesystem access, credentials, network
+access, and command execution. Published research illustrates the resulting
+attack surface:
 
-- **512 vulnerabilities** found in a single audit (8 critical)
-- **135,000+ exposed instances** with zero authentication
-- **ClawHavoc campaign**: 341 malicious skills on ClawHub distributing the AMOS stealer
-- **CVE-2026-25253**: 1-click RCE via WebSocket origin validation bypass
-- **CVE-2026-28363**: safeBins sandbox bypass (CVSS 9.9)
-- **CVE-2026-21636**: Node.js permission model bypass via Unix Domain Sockets
-- **"Claw Chain"** (CVE-2026-44112/44113/44115/44118, patched in 2026.4.22):
-  chainable TOCTOU sandbox escape → command-validation bypass → loopback
-  privilege escalation (CVSS up to 9.6)
-- **ClawHavoc** has since grown to ~1,184 malicious ClawHub packages (~12% of the registry)
+- [Kaspersky reported 512 findings, including eight critical findings](https://www.kaspersky.com/blog/openclaw-vulnerabilities-exposed/55263/)
+  in an early OpenClaw audit.
+- [SecurityScorecard identified more than 40,000 internet-exposed instances](https://securityscorecard.com/blog/beyond-the-hype-moltbots-real-risk-is-exposed-infrastructure-not-ai-superintelligence/)
+  during its initial research window.
+- [Koi Security identified 341 malicious ClawHub skills](https://www.koi.ai/blog/clawhavoc-341-malicious-clawedbot-skills-found-by-the-bot-they-were-targeting)
+  in the ClawHavoc campaign and later updated the same report to 824.
+- OpenClaw advisories include
+  [CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253),
+  [CVE-2026-28363](https://nvd.nist.gov/vuln/detail/CVE-2026-28363), and the
+  [Claw Chain vulnerability cluster](https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/05/CSA_research_note_openclaw-claw-chain-cve_20260517-csa-styled.pdf).
+- Hermes advisories include
+  [CVE-2026-9368](https://nvd.nist.gov/vuln/detail/CVE-2026-9368) and
+  [CVE-2026-10548](https://nvd.nist.gov/vuln/detail/CVE-2026-10548).
 
-Hermes (NousResearch) has had its own run of disclosures — CVE-2026-9368
-(`code_execution_tool`), CVE-2026-10548 (credential-pool auth bypass), and a
-cluster of default-posture issues (`--yolo` mode, unset `HERMES_WRITE_SAFE_ROOT`,
-container approval bypass, `setup.commands` skill injection). OpenClaw JSON5
-and Hermes YAML are parsed through product-specific adapters, with native audit
-output normalized into the shared finding model.
+OpenClaw JSON5 and Hermes YAML are parsed through product-specific adapters,
+with native audit output normalized into the shared finding model.
 
 ## Installation
 
@@ -351,11 +357,17 @@ pytest tests/ -v
 coverage run -m pytest tests/ -q && coverage report
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow. Please
+report security vulnerabilities through the private process in
+[SECURITY.md](SECURITY.md), not through a public issue.
+
 ## Platform Support
 
-- **macOS**: Full support (primary target)
-- **Linux**: Full support
-- **Windows**: Sweep and report commands work. Daemon mode requires WSL.
+- **Linux**: Continuously tested in GitHub Actions across Python 3.10-3.14.
+- **macOS**: Primary runtime target and manually exercised; not currently in
+  the hosted CI matrix.
+- **Windows**: Native execution is best-effort for one-shot sweeps and reports.
+  Daemon mode requires WSL because it uses Unix process primitives.
 
 ## License
 
